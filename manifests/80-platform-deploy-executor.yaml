@@ -82,6 +82,42 @@ spec:
               value: "/vault-secrets/vault-token"
             - name: OPENAPI_SERVER_URL
               value: "http://platform-deploy-executor.directus.svc.cluster.local:8080"
+            - name: WORKSPACE_ROOT
+              value: "/workspace/platform-deploy-executor"
+            - name: OPENOBSERVE_BROWSER_RUM_CACHE_DIR
+              value: "/workspace/cache/openobserve-browser-rum"
+            - name: TFE_TOKEN_VAULT_PATH
+              value: "secret/data/platform-deploy-service"
+            - name: TFE_TOKEN_VAULT_KEYS
+              value: "tfe_token,tfe-token,tf_api_token"
+            - name: TFE_AGENT_POOL_ID_VAULT_PATH
+              value: "secret/data/platform-deploy-service"
+            - name: TFE_AGENT_POOL_ID_VAULT_KEYS
+              value: "tfe_agent_pool_id,tfe-agent-pool-id"
+            - name: TFE_ORGANIZATION_VAULT_PATH
+              value: "secret/data/platform-deploy-service"
+            - name: TFE_ORGANIZATION_VAULT_KEYS
+              value: "tfe_organization,tfe-organization,tf_cloud_organization"
+            - name: GITHUB_TOKEN_VAULT_PATH
+              value: "secret/data/platform-deploy-service/github"
+            - name: GITHUB_TOKEN_VAULT_KEYS
+              value: "token,github_token,github-token"
+            - name: APP_AUTH_GATEWAY_ADMIN_TOKEN_VAULT_PATH
+              value: "secret/data/platform-deploy-service"
+            - name: APP_AUTH_GATEWAY_ADMIN_TOKEN_VAULT_KEYS
+              value: "app_auth_gateway_admin_token,app-auth-gateway-admin-token"
+            - name: CLOUDFLARE_TOKEN_VAULT_PATH
+              value: "secret/data/platform-deploy-service"
+            - name: CLOUDFLARE_TOKEN_VAULT_KEYS
+              value: "cloudflare_token,cloudflare-token"
+            - name: CLOUDFLARE_ACCOUNT_ID_VAULT_PATH
+              value: "secret/data/platform-deploy-service"
+            - name: CLOUDFLARE_ACCOUNT_ID_VAULT_KEYS
+              value: "cloudflare_account_id,cloudflare-account-id"
+            - name: CLOUDFLARE_ZONE_ID_VAULT_PATH
+              value: "secret/data/platform-deploy-service"
+            - name: CLOUDFLARE_ZONE_ID_VAULT_KEYS
+              value: "cloudflare_zone_id,cloudflare-zone-id"
             - name: REQUEST_TIMEOUT_MS
               value: "15000"
             - name: RATE_MAX
@@ -112,11 +148,15 @@ spec:
           volumeMounts:
             - name: vault-secrets
               mountPath: /vault-secrets
+            - name: workspace
+              mountPath: /workspace
       volumes:
         - name: vault-agent-config
           configMap:
             name: vault-agent-config-platform-deploy-executor
         - name: vault-secrets
+          emptyDir: {}
+        - name: workspace
           emptyDir: {}
 ---
 apiVersion: v1

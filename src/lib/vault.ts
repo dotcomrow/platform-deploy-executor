@@ -46,6 +46,26 @@ export async function vaultValue(path: string, key: string): Promise<string> {
   return value;
 }
 
+export async function optionalVaultValue(path: string, keys: string[]): Promise<string> {
+  if (!path || !keys.length) {
+    return "";
+  }
+  for (const key of keys) {
+    try {
+      return await vaultValue(path, key);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "";
+      if (message.includes("failed: 404")) {
+        return "";
+      }
+      if (!message.includes("did not return key")) {
+        throw error;
+      }
+    }
+  }
+  return "";
+}
+
 export async function resolveInternalToken(): Promise<string> {
   if (config.internalToken) {
     return config.internalToken;

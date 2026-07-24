@@ -15,8 +15,12 @@ Current execution mode is intentionally `dry_run`. In that mode the executor:
 - returns step result metadata without mutating Terraform, Cloudflare, GitHub,
   or shell app resources
 
-Provider modules for real `terraform_cloud` and `local_terraform` execution are
-stubbed and return HTTP `501` until implemented.
+`terraform_cloud` execution is implemented behind the provider switch. Kubernetes
+still deploys this service with `EXECUTOR_MODE=dry_run` until the real provider
+is tested against a non-deployed app.
+
+The `local_terraform` provider remains stubbed and returns HTTP `501` until
+implemented.
 
 ## Executor Endpoints
 
@@ -38,6 +42,13 @@ Health and contract endpoints:
 - `INTERNAL_TOKEN`: optional static internal token for local development
 - `INTERNAL_TOKEN_VAULT_PATH`: defaults to `secret/data/platform-deploy-service`
 - `INTERNAL_TOKEN_VAULT_KEY`: defaults to `token`
+- `TFE_TOKEN_VAULT_PATH`: defaults to `secret/data/platform-deploy-service`
+- `TFE_AGENT_POOL_ID_VAULT_PATH`: defaults to `secret/data/platform-deploy-service`
+- `TFE_ORGANIZATION_VAULT_PATH`: defaults to `secret/data/platform-deploy-service`
+- `APP_AUTH_GATEWAY_ADMIN_TOKEN_VAULT_PATH`: defaults to `secret/data/platform-deploy-service`
+- `CLOUDFLARE_TOKEN_VAULT_PATH`: defaults to `secret/data/platform-deploy-service`
+- `CLOUDFLARE_ACCOUNT_ID_VAULT_PATH`: defaults to `secret/data/platform-deploy-service`
+- `CLOUDFLARE_ZONE_ID_VAULT_PATH`: defaults to `secret/data/platform-deploy-service`
 - `VAULT_ADDR`: defaults to in-cluster Vault
 - `VAULT_TOKEN_FILE`: defaults to `/vault-secrets/vault-token`
 
