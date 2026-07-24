@@ -6,7 +6,8 @@ This service is called by the `dataflow-platform-deploy-app` NiFi flow after
 `platform-deploy-service` queues an operation and the Flink preparation job
 publishes a prepared deployment request.
 
-Current execution mode is intentionally `dry_run`. In that mode the executor:
+The executor can still run in `dry_run` for validation-only checks. In that mode
+the executor:
 
 - validates the prepared deployment payload from NiFi
 - validates the requested step and operation sequence
@@ -15,9 +16,9 @@ Current execution mode is intentionally `dry_run`. In that mode the executor:
 - returns step result metadata without mutating Terraform, Cloudflare, GitHub,
   or shell app resources
 
-`terraform_cloud` execution is implemented behind the provider switch. Kubernetes
-still deploys this service with `EXECUTOR_MODE=dry_run` until the real provider
-is tested against a non-deployed app.
+`terraform_cloud` execution is implemented behind the provider switch. The
+Kubernetes manifest currently deploys this service with
+`EXECUTOR_MODE=terraform_cloud` for real deployment testing.
 
 The `local_terraform` provider remains stubbed and returns HTTP `501` until
 implemented.
