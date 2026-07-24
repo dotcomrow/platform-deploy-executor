@@ -1,0 +1,136 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: vault-agent-config-platform-deploy-executor
+  namespace: directus
+data:
+  vault-agent.hcl: |
+    pid_file = "/vault/agent.pid"
+    exit_after_auth = false
+
+    vault {
+      address = "http://vault.vault.svc.cluster.local:8200"
+    }
+
+    auto_auth {
+      method "kubernetes" {
+        mount_path = "auth/kubernetes"
+        config = {
+          role = "directus"
+        }
+      }
+
+      sink "file" {
+        config = {
+          path = "/vault-secrets/vault-token"
+          mode = 0644
+        }
+      }
+    }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: platform-deploy-executor
+  namespace: directus
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+    reloader.stakater.com/auto: "true"
+  labels:
+    app: platform-deploy-executor
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: platform-deploy-executor
+  template:
+    metadata:
+      annotations:
+        reloader.stakater.com/auto: "true"
+      labels:
+        app: platform-deploy-executor
+    spec:
+      serviceAccountName: directus
+      containers:
+        - name: vault-agent
+          image: hashicorp/vault:1.15.4
+          command: ["vault", "agent", "-config=/vault-config/vault-agent.hcl"]
+          volumeMounts:
+            - name: vault-agent-config
+              mountPath: /vault-config
+            - name: vault-secrets
+              mountPath: /vault-secrets
+        - name: platform-deploy-executor
+          image: "ghcr.io/dotcomrow/platform-deploy-executor:latest"
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8080
+          env:
+            - name: PORT
+              value: "8080"
+            - name: EXECUTOR_MODE
+              value: "dry_run"
+            - name: AUTH_REQUIRED
+              value: "true"
+            - name: INTERNAL_TOKEN_VAULT_PATH
+              value: "secret/data/platform-deploy-service"
+            - name: INTERNAL_TOKEN_VAULT_KEY
+              value: "token"
+            - name: VAULT_ADDR
+              value: "http://vault.vault.svc.cluster.local:8200"
+            - name: VAULT_TOKEN_FILE
+              value: "/vault-secrets/vault-token"
+            - name: OPENAPI_SERVER_URL
+              value: "http://platform-deploy-executor.directus.svc.cluster.local:8080"
+            - name: REQUEST_TIMEOUT_MS
+              value: "15000"
+            - name: RATE_MAX
+              value: "60"
+          startupProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 30
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 15
+            timeoutSeconds: 10
+            failureThreshold: 6
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 15
+            periodSeconds: 20
+            timeoutSeconds: 3
+            failureThreshold: 6
+          volumeMounts:
+            - name: vault-secrets
+              mountPath: /vault-secrets
+      volumes:
+        - name: vault-agent-config
+          configMap:
+            name: vault-agent-config-platform-deploy-executor
+        - name: vault-secrets
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: platform-deploy-executor
+  namespace: directus
+  labels:
+    app: platform-deploy-executor
+spec:
+  selector:
+    app: platform-deploy-executor
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+  type: ClusterIP
