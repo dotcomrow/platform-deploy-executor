@@ -46,7 +46,7 @@ Health and contract endpoints:
 - `TFE_TOKEN_VAULT_PATH`: defaults to `secret/data/platform-deploy-service`
 - `TFE_AGENT_POOL_ID_VAULT_PATH`: defaults to `secret/data/platform-deploy-service`
 - `TFE_ORGANIZATION_VAULT_PATH`: defaults to `secret/data/platform-deploy-service`
-- `APP_AUTH_GATEWAY_ADMIN_TOKEN_VAULT_PATH`: defaults to `secret/data/platform-deploy-service`
+- `APP_AUTH_GATEWAY_ADMIN_TOKEN_VAULT_PATH`: defaults to `secret/data/auth-gateway-admin-api` key `value`
 - `CLOUDFLARE_TOKEN_VAULT_PATH`: defaults to `secret/data/platform-deploy-service`
 - `CLOUDFLARE_ACCOUNT_ID_VAULT_PATH`: defaults to `secret/data/platform-deploy-service`
 - `CLOUDFLARE_ZONE_ID_VAULT_PATH`: defaults to `secret/data/platform-deploy-service`
