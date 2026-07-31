@@ -1,9 +1,11 @@
 import { DeployRequest, StepDefinition, StepExecutionResult } from "../steps/types.js";
+import { StepEvent } from "../steps/status-events.js";
 
 export type ProviderExecutionContext = {
   request: DeployRequest;
   step: StepDefinition;
   startedAt: Date;
+  emitStep: (event: StepEvent) => Promise<void>;
 };
 
 export interface DeployStepProvider {

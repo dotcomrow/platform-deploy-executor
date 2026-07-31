@@ -12,6 +12,7 @@ type TfeClientOptions = {
   organization: string;
   logFile: string;
   redactedValues: string[];
+  onRunStatus?: (runId: string, status: string) => Promise<void>;
 };
 
 export type TerraformVar = {
@@ -44,6 +45,7 @@ export class TfeClient {
   private readonly organization: string;
   private readonly logFile: string;
   private readonly redactedValues: string[];
+  private readonly onRunStatus?: (runId: string, status: string) => Promise<void>;
 
   constructor(options: TfeClientOptions) {
     this.apiBase = options.apiBase.replace(/\/+$/, "");
@@ -51,6 +53,7 @@ export class TfeClient {
     this.organization = options.organization;
     this.logFile = options.logFile;
     this.redactedValues = options.redactedValues;
+    this.onRunStatus = options.onRunStatus;
   }
 
   async lookupProjectId(projectName: string): Promise<string> {
@@ -275,6 +278,9 @@ export class TfeClient {
       const response = await this.request<JsonRecord>("GET", `/runs/${encodeURIComponent(runId)}`);
       const status = asString(asRecord(asRecord(response.data)?.attributes)?.status);
       await appendFile(this.logFile, `[tfe] run ${runId} status=${status || "unknown"}\n`, "utf8");
+      if (this.onRunStatus) {
+        await this.onRunStatus(runId, status || "unknown");
+      }
       if (["applied", "planned_and_finished"].includes(status)) {
         return status;
       }

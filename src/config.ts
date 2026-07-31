@@ -41,6 +41,7 @@ const envSchema = z.object({
   VAULT_ADDR: z.string().default("http://vault.vault.svc.cluster.local:8200"),
   VAULT_TOKEN_FILE: z.string().default("/vault-secrets/vault-token"),
   TOKEN_CACHE_SECONDS: z.string().default("300"),
+  PLATFORM_DEPLOY_SERVICE_URL: z.string().default("http://platform-deploy-service.directus.svc.cluster.local:8080"),
   OPENAPI_SERVER_URL: z.string().default("http://platform-deploy-executor.directus.svc.cluster.local:8080")
 });
 
@@ -86,6 +87,7 @@ export const config = {
   vaultAddr: parsed.VAULT_ADDR.replace(/\/+$/, ""),
   vaultTokenFile: parsed.VAULT_TOKEN_FILE,
   tokenCacheSeconds: Math.max(5, Number(parsed.TOKEN_CACHE_SECONDS) || 300),
+  platformDeployServiceUrl: parsed.PLATFORM_DEPLOY_SERVICE_URL.replace(/\/+$/, ""),
   openApiServerUrl: parsed.OPENAPI_SERVER_URL
 };
 
