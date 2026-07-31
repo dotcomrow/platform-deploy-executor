@@ -27,8 +27,12 @@ export async function buildShellArtifacts(options: {
   logFile: string;
   secrets?: string[];
 }): Promise<void> {
-  await runCommand("npm", ["ci"], {
+  await runCommand("npm", ["ci", "--include=dev"], {
     cwd: options.sourceDir,
+    env: {
+      NODE_ENV: "development",
+      NPM_CONFIG_PRODUCTION: "false"
+    },
     logFile: options.logFile,
     secrets: options.secrets,
     timeoutMs: 20 * 60 * 1000

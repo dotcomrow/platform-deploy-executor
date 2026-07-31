@@ -22,6 +22,22 @@ export type TerraformVar = {
   sensitive?: boolean;
 };
 
+export type TerraformWorkspaceDeleteResult = {
+  deleted: boolean;
+  already_missing: boolean;
+  status_code: number;
+  workspace_id: string;
+  workspace_name: string;
+  attempts: number;
+};
+
+export type TerraformWorkspaceLookupResult = {
+  id: string;
+  workspace_name: string;
+  status_code: number;
+  resource_count: number | null;
+};
+
 export class TfeClient {
   private readonly apiBase: string;
   private readonly token: string;
@@ -49,14 +65,37 @@ export class TfeClient {
     return id;
   }
 
-  async createOrGetWorkspace(workspaceName: string, projectId: string, agentPoolId: string): Promise<string> {
+  async getWorkspace(workspaceName: string): Promise<TerraformWorkspaceLookupResult | null> {
     const path = `/organizations/${encodeURIComponent(this.organization)}/workspaces/${encodeURIComponent(workspaceName)}`;
     const lookup = await this.raw<JsonRecord>("GET", path);
-    let workspaceId = "";
-    if (lookup.statusCode === 200) {
-      const payload = asRecord(lookup.payload) ?? {};
-      workspaceId = asString(asRecord(payload.data)?.id);
-    } else if (lookup.statusCode === 404) {
+    if (lookup.statusCode === 404) {
+      return null;
+    }
+    if (lookup.statusCode !== 200) {
+      throw new Error(`Failed to lookup Terraform Cloud workspace ${workspaceName}: HTTP ${lookup.statusCode} ${truncate(lookup.text, 700)}`);
+    }
+
+    const data = asRecord((asRecord(lookup.payload) ?? {}).data) ?? {};
+    const attributes = asRecord(data.attributes) ?? {};
+    const id = asString(data.id);
+    if (!id) {
+      throw new Error(`Terraform Cloud did not return an id for workspace ${workspaceName}.`);
+    }
+
+    const resourceCount = attributes["resource-count"];
+    return {
+      id,
+      workspace_name: workspaceName,
+      status_code: lookup.statusCode,
+      resource_count: typeof resourceCount === "number" ? resourceCount : null
+    };
+  }
+
+  async createOrGetWorkspace(workspaceName: string, projectId: string, agentPoolId: string): Promise<string> {
+    const path = `/organizations/${encodeURIComponent(this.organization)}/workspaces/${encodeURIComponent(workspaceName)}`;
+    const lookup = await this.getWorkspace(workspaceName);
+    let workspaceId = lookup?.id ?? "";
+    if (!lookup) {
       const created = await this.request<JsonRecord>("POST", `/organizations/${encodeURIComponent(this.organization)}/workspaces`, {
         data: {
           attributes: {
@@ -75,8 +114,6 @@ export class TfeClient {
         }
       });
       workspaceId = asString(asRecord(created.data)?.id);
-    } else {
-      throw new Error(`Failed to lookup Terraform Cloud workspace ${workspaceName}: HTTP ${lookup.statusCode} ${truncate(lookup.text, 700)}`);
     }
 
     if (!workspaceId) {
@@ -95,6 +132,37 @@ export class TfeClient {
       }
     });
     return workspaceId;
+  }
+
+  async safeDeleteWorkspace(workspaceId: string, workspaceName: string): Promise<TerraformWorkspaceDeleteResult> {
+    const path = `/workspaces/${encodeURIComponent(workspaceId)}/actions/safe-delete`;
+    const result = await this.raw<unknown>("POST", path, undefined, { retryUnsafePost: true, maxAttempts: 3 });
+    if (result.statusCode === 404) {
+      await appendFile(this.logFile, `[tfe] workspace ${workspaceName} already absent\n`, "utf8");
+      return {
+        deleted: false,
+        already_missing: true,
+        status_code: result.statusCode,
+        workspace_id: workspaceId,
+        workspace_name: workspaceName,
+        attempts: result.attempts
+      };
+    }
+    if (result.statusCode === 409) {
+      throw new Error(`Terraform Cloud refused to safe-delete workspace ${workspaceName}; it is still managing resources.`);
+    }
+    if (result.statusCode !== 204) {
+      throw new Error(`Terraform Cloud POST ${path} failed: HTTP ${result.statusCode} ${truncate(result.text, 900)}`);
+    }
+    await appendFile(this.logFile, `[tfe] safely deleted workspace ${workspaceName}\n`, "utf8");
+    return {
+      deleted: true,
+      already_missing: false,
+      status_code: result.statusCode,
+      workspace_id: workspaceId,
+      workspace_name: workspaceName,
+      attempts: result.attempts
+    };
   }
 
   async upsertTerraformVars(workspaceId: string, variables: TerraformVar[]): Promise<void> {
@@ -226,15 +294,63 @@ export class TfeClient {
     return result.payload;
   }
 
-  private async raw<T>(method: "GET" | "POST" | "PATCH", path: string, body?: unknown) {
-    return httpJson<T>(`${this.apiBase}${path}`, {
-      method,
-      body,
-      timeoutMs: config.requestTimeoutMs,
-      headers: {
-        authorization: `Bearer ${this.token}`,
-        "content-type": "application/vnd.api+json"
+  private async raw<T>(
+    method: "GET" | "POST" | "PATCH",
+    path: string,
+    body?: unknown,
+    options: { maxAttempts?: number; retryUnsafePost?: boolean } = {}
+  ) {
+    const retryableMethod = method === "GET" || method === "PATCH" || (method === "POST" && options.retryUnsafePost);
+    const maxAttempts = Math.max(1, options.maxAttempts ?? (retryableMethod ? 3 : 1));
+    const timeoutMs = Math.max(config.requestTimeoutMs, 60_000);
+    let lastError: unknown;
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+      try {
+        const result = await httpJson<T>(`${this.apiBase}${path}`, {
+          method,
+          body,
+          timeoutMs,
+          headers: {
+            authorization: `Bearer ${this.token}`,
+            "content-type": "application/vnd.api+json"
+          }
+        });
+        if (attempt < maxAttempts && shouldRetryTfeResponse(method, result.statusCode, result.text, options.retryUnsafePost)) {
+          await appendFile(this.logFile, `[tfe] ${method} ${path} returned HTTP ${result.statusCode}; retrying request\n`, "utf8");
+          await delay(attempt * 2000);
+          continue;
+        }
+        return { ...result, attempts: attempt };
+      } catch (error) {
+        lastError = error;
+        if (attempt >= maxAttempts) {
+          break;
+        }
+        await appendFile(this.logFile, `[tfe] ${method} ${path} failed: ${truncate(errorMessage(error), 500)}; retrying request\n`, "utf8");
+        await delay(attempt * 2000);
       }
-    });
+    }
+
+    throw new Error(`Terraform Cloud ${method} ${path} request failed after ${maxAttempts} attempt(s): ${truncate(errorMessage(lastError), 700)}`);
   }
+}
+
+function shouldRetryTfeResponse(method: string, statusCode: number, text: string, retryUnsafePost = false): boolean {
+  const retryableMethod = method === "GET" || method === "PATCH" || (method === "POST" && retryUnsafePost);
+  if (!retryableMethod) {
+    return false;
+  }
+  if (statusCode === 408 || statusCode === 429 || statusCode >= 500) {
+    return true;
+  }
+  return method === "GET" && statusCode === 404 && text.trim() === "404 page not found";
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }

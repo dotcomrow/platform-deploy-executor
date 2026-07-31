@@ -75,6 +75,10 @@ app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
     ? err.errors.map((issue) => `${issue.path.join(".") || "body"}: ${issue.message}`).join("; ")
     : err instanceof Error ? err.message : "Internal server error";
 
+  if (status >= 500) {
+    console.error(`[platform-deploy-executor] request failed status=${status}: ${truncate(message, 1000)}`);
+  }
+
   res.status(status).json({
     error: {
       message,
