@@ -30,6 +30,10 @@ implemented.
 - `POST /internal/operations/{operation_id}/steps/preview-destroy`
 - `POST /internal/operations/{operation_id}/steps/prod-destroy`
 
+`preview-deploy` is guarded by the executor. It refuses to run unless the same
+operation already has a `prod-deploy` step recorded as `succeeded`, because the
+production Terraform workspace owns shared resources such as D1 and R2.
+
 Health and contract endpoints:
 
 - `GET /healthz`

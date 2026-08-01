@@ -13,6 +13,22 @@ type OperationStatusResponse = {
   active?: boolean;
 };
 
+type OperationStepsResponse = {
+  ok?: boolean;
+  operation_id?: string;
+  steps?: unknown[];
+};
+
+type OperationStepStatus = "queued" | "running" | "succeeded" | "failed" | "canceled" | "unknown";
+
+function operationStepStatus(value: unknown): OperationStepStatus {
+  const normalized = asString(value, "unknown").toLowerCase();
+  if (["queued", "running", "succeeded", "failed", "canceled"].includes(normalized)) {
+    return normalized as OperationStepStatus;
+  }
+  return "unknown";
+}
+
 export async function assertOperationActive(request: DeployRequest): Promise<void> {
   if (!config.platformDeployServiceUrl) {
     throw Object.assign(new Error("Platform deploy service URL is not configured."), { status: 503 });
@@ -61,6 +77,69 @@ export async function assertOperationActive(request: DeployRequest): Promise<voi
   if (!active) {
     throw Object.assign(
       new Error(`Operation ${request.operation_id} is ${status}; refusing to run executor step.`),
+      { status: 409 }
+    );
+  }
+}
+
+export async function assertProductionDeploySucceeded(request: DeployRequest): Promise<void> {
+  if (!config.platformDeployServiceUrl) {
+    throw Object.assign(new Error("Platform deploy service URL is not configured."), { status: 503 });
+  }
+
+  const token = await resolveInternalToken();
+  if (!token) {
+    throw Object.assign(new Error("Internal auth token is not configured."), { status: 503 });
+  }
+
+  const result = await httpJson<OperationStepsResponse>(
+    `${config.platformDeployServiceUrl}/internal/operations/${encodeURIComponent(request.operation_id)}/steps`,
+    {
+      timeoutMs: config.requestTimeoutMs,
+      headers: { authorization: `Bearer ${token}` }
+    }
+  );
+
+  if (result.statusCode >= 400) {
+    throw Object.assign(
+      new Error(`Operation step preflight failed HTTP ${result.statusCode}: ${truncate(result.text, 700)}`),
+      { status: result.statusCode }
+    );
+  }
+
+  const payload = asRecord(result.payload);
+  if (!payload) {
+    throw Object.assign(new Error("Operation steps response was not a JSON object."), { status: 502 });
+  }
+  const operationId = asString(payload.operation_id);
+  if (operationId !== request.operation_id) {
+    throw Object.assign(new Error("Operation steps response id did not match request."), { status: 502 });
+  }
+
+  const prodDeployStep = (Array.isArray(payload.steps) ? payload.steps : [])
+    .map((entry) => asRecord(entry))
+    .filter((entry): entry is Record<string, unknown> => Boolean(entry))
+    .find((step) => asString(step.step_key) === "prod-deploy");
+
+  if (!prodDeployStep) {
+    throw Object.assign(
+      new Error(`Production deploy must complete successfully before preview deploy; operation ${request.operation_id} has no prod-deploy step yet.`),
+      { status: 409 }
+    );
+  }
+
+  const status = operationStepStatus(prodDeployStep.status);
+  if (status !== "succeeded") {
+    throw Object.assign(
+      new Error(`Production deploy must complete successfully before preview deploy; prod-deploy is ${status}.`),
+      { status: 409 }
+    );
+  }
+
+  const prodStepAppId = asString(prodDeployStep.app_id);
+  if (prodStepAppId && prodStepAppId !== request.app_id) {
+    throw Object.assign(
+      new Error(`Production deploy must complete successfully before preview deploy; prod-deploy belongs to app ${prodStepAppId}, not ${request.app_id}.`),
       { status: 409 }
     );
   }
