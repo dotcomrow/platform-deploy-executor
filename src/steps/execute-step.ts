@@ -2,9 +2,11 @@ import { providerForConfiguredMode } from "../providers/index.js";
 import { DeploymentStepName, StepExecutionResult } from "./types.js";
 import { parseDeployRequest, stepDefinitions } from "./validation.js";
 import { emitOperationStep, StepEvent } from "./status-events.js";
+import { assertOperationActive } from "./operation-status.js";
 
 export async function executeStep(operationId: string, stepName: DeploymentStepName, body: unknown): Promise<StepExecutionResult> {
   const request = parseDeployRequest(operationId, stepName, body);
+  await assertOperationActive(request);
   const provider = providerForConfiguredMode();
   const startedAt = new Date();
   const step = stepDefinitions[stepName];
