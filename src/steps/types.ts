@@ -21,7 +21,7 @@ export const deployRequestSchema = z.object({
   preview_url: z.string().optional().default(""),
   source_repository: z.string().min(1),
   template_prod_ref: z.string().optional().default("prod"),
-  template_preview_ref: z.string().optional().default("dev"),
+  template_preview_ref: z.string().optional().default("prod"),
   terraform_project: z.string().optional().default(""),
   terraform_cloud_organization: z.string().optional().default(""),
   tfe_agent_pool_id: z.string().optional().default(""),

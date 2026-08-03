@@ -19,10 +19,7 @@ export function terraformWorkspaceFor(request: DeployRequest, step: StepDefiniti
     : request.terraform_workspace_preview;
 }
 
-export function sourceRefFor(request: DeployRequest, step: StepDefinition): string {
-  if (step.target === "preview") {
-    return request.template_preview_ref || "dev";
-  }
+export function sourceRefFor(request: DeployRequest, _step: StepDefinition): string {
   return request.template_prod_ref || request.github_ref || "prod";
 }
 
