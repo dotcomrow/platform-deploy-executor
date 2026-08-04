@@ -58,6 +58,8 @@ spec:
         app: platform-deploy-executor
     spec:
       serviceAccountName: platform-deploy-executor
+      nodeSelector:
+        work-node: "true"
       containers:
         - name: vault-agent
           image: hashicorp/vault:1.15.4
@@ -70,6 +72,11 @@ spec:
         - name: platform-deploy-executor
           image: "ghcr.io/dotcomrow/platform-deploy-executor:latest"
           imagePullPolicy: Always
+          resources:
+            requests:
+              ephemeral-storage: "2Gi"
+            limits:
+              ephemeral-storage: "12Gi"
           ports:
             - containerPort: 8080
           env:
@@ -162,9 +169,11 @@ spec:
           configMap:
             name: vault-agent-config-platform-deploy-executor
         - name: vault-secrets
-          emptyDir: {}
+          emptyDir:
+            sizeLimit: "16Mi"
         - name: workspace
-          emptyDir: {}
+          emptyDir:
+            sizeLimit: "12Gi"
 ---
 apiVersion: v1
 kind: Service

@@ -183,6 +183,8 @@ export class TerraformCloudProvider implements DeployStepProvider {
         log_excerpt: logExcerpt || (error instanceof Error ? error.stack || error.message : String(error))
       });
       throw error;
+    } finally {
+      await cleanupOperationDir(operationDir);
     }
   }
 }
@@ -327,6 +329,15 @@ async function readLogExcerpt(logFile: string): Promise<string> {
     return tail(await readFile(logFile, "utf8"), 8000);
   } catch {
     return "";
+  }
+}
+
+async function cleanupOperationDir(operationDir: string): Promise<void> {
+  try {
+    await rm(operationDir, { recursive: true, force: true });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.warn(`[platform-deploy-executor] failed to clean workspace directory ${operationDir}: ${message}`);
   }
 }
 
