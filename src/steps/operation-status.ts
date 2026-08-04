@@ -20,6 +20,10 @@ type OperationStepsResponse = {
 };
 
 type OperationStepStatus = "queued" | "running" | "succeeded" | "failed" | "canceled" | "unknown";
+type OperationStepRecord = Record<string, unknown>;
+
+const PRODUCTION_DEPLOY_READY_TIMEOUT_MS = 60_000;
+const PRODUCTION_DEPLOY_READY_POLL_MS = 2_000;
 
 function operationStepStatus(value: unknown): OperationStepStatus {
   const normalized = asString(value, "unknown").toLowerCase();
@@ -92,11 +96,58 @@ export async function assertProductionDeploySucceeded(request: DeployRequest): P
     throw Object.assign(new Error("Internal auth token is not configured."), { status: 503 });
   }
 
+  const deadline = Date.now() + PRODUCTION_DEPLOY_READY_TIMEOUT_MS;
+  let lastStatus: OperationStepStatus | "missing" = "missing";
+
+  while (Date.now() <= deadline) {
+    const prodDeployStep = await getProductionDeployStep(request, token);
+
+    if (prodDeployStep) {
+      const prodStepAppId = asString(prodDeployStep.app_id);
+      if (prodStepAppId && prodStepAppId !== request.app_id) {
+        throw Object.assign(
+          new Error(`Production deploy must complete successfully before preview deploy; prod-deploy belongs to app ${prodStepAppId}, not ${request.app_id}.`),
+          { status: 409 }
+        );
+      }
+
+      const status = operationStepStatus(prodDeployStep.status);
+      lastStatus = status;
+
+      if (status === "succeeded") {
+        return;
+      }
+
+      if (status === "failed" || status === "canceled") {
+        throw Object.assign(
+          new Error(`Production deploy must complete successfully before preview deploy; prod-deploy is ${status}.`),
+          { status: 409 }
+        );
+      }
+    }
+
+    await wait(Math.min(PRODUCTION_DEPLOY_READY_POLL_MS, Math.max(0, deadline - Date.now())));
+  }
+
+  throw Object.assign(
+    new Error(
+      lastStatus === "missing"
+        ? `Production deploy must complete successfully before preview deploy; operation ${request.operation_id} has no prod-deploy step yet.`
+        : `Production deploy must complete successfully before preview deploy; prod-deploy is ${lastStatus}.`
+    ),
+    { status: 409 }
+  );
+}
+
+async function getProductionDeployStep(request: DeployRequest, token: string): Promise<OperationStepRecord | null> {
   const result = await httpJson<OperationStepsResponse>(
     `${config.platformDeployServiceUrl}/internal/operations/${encodeURIComponent(request.operation_id)}/steps`,
     {
       timeoutMs: config.requestTimeoutMs,
-      headers: { authorization: `Bearer ${token}` }
+      headers: {
+        authorization: `Bearer ${token}`,
+        "cache-control": "no-store"
+      }
     }
   );
 
@@ -121,26 +172,9 @@ export async function assertProductionDeploySucceeded(request: DeployRequest): P
     .filter((entry): entry is Record<string, unknown> => Boolean(entry))
     .find((step) => asString(step.step_key) === "prod-deploy");
 
-  if (!prodDeployStep) {
-    throw Object.assign(
-      new Error(`Production deploy must complete successfully before preview deploy; operation ${request.operation_id} has no prod-deploy step yet.`),
-      { status: 409 }
-    );
-  }
+  return prodDeployStep ?? null;
+}
 
-  const status = operationStepStatus(prodDeployStep.status);
-  if (status !== "succeeded") {
-    throw Object.assign(
-      new Error(`Production deploy must complete successfully before preview deploy; prod-deploy is ${status}.`),
-      { status: 409 }
-    );
-  }
-
-  const prodStepAppId = asString(prodDeployStep.app_id);
-  if (prodStepAppId && prodStepAppId !== request.app_id) {
-    throw Object.assign(
-      new Error(`Production deploy must complete successfully before preview deploy; prod-deploy belongs to app ${prodStepAppId}, not ${request.app_id}.`),
-      { status: 409 }
-    );
-  }
+function wait(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
