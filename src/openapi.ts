@@ -54,7 +54,9 @@ export const openApiSpec = {
           github_repository: { type: "string" },
           github_ref: { type: "string" },
           terraform_project: { type: "string" },
-          terraform_cloud_organization: { type: "string" }
+          terraform_cloud_organization: { type: "string" },
+          terraform_run_retry_attempts: { type: "integer", minimum: 1, maximum: 10, default: 3 },
+          terraform_run_retry_delay_seconds: { type: "integer", minimum: 1, maximum: 600, default: 60 }
         }
       },
       StepResponse: {

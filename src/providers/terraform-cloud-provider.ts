@@ -8,7 +8,17 @@ import { deleteAuthGatewayRegistration } from "./auth-gateway.js";
 import { sourceRefFor, terraformWorkspaceFor, buildResult, DeployStepProvider, ProviderExecutionContext } from "./provider.js";
 import { resolveDeployValues, workspaceVars } from "./deploy-values.js";
 import { resolveTerraformCloudSecrets } from "./secrets.js";
-import { TfeClient } from "./tfe-client.js";
+import { TerraformCloudRunTerminalError, TfeClient } from "./tfe-client.js";
+
+type TerraformRunResult = {
+  configVersionId: string;
+  runId: string;
+  runStatus: string;
+  runUrl: string;
+  attempts: number;
+};
+
+type StageFn = (message: string, result?: Record<string, unknown>) => Promise<void>;
 
 export class TerraformCloudProvider implements DeployStepProvider {
   readonly mode = "terraform_cloud";
@@ -43,6 +53,9 @@ export class TerraformCloudProvider implements DeployStepProvider {
       const values = resolveDeployValues(request, secrets);
       const organization = values.orgName;
       const workspaceName = terraformWorkspaceFor(request, step);
+      const maxRunAttempts = parseBoundedPositiveInt(request.terraform_run_retry_attempts, 3, 1, 10);
+      const retryDelaySeconds = parseBoundedPositiveInt(request.terraform_run_retry_delay_seconds, 60, 1, 600);
+      let activeRunAttempt = 1;
       const tfe = new TfeClient({
         apiBase: request.tfe_api_base || "https://app.terraform.io/api/v2",
         token: secrets.tfeToken,
@@ -50,12 +63,18 @@ export class TerraformCloudProvider implements DeployStepProvider {
         logFile,
         redactedValues: secrets.redactedValues,
         onRunStatus: async (runId, status) => {
+          const terminal = ["errored", "canceled", "discarded", "force_canceled"].includes(status);
+          const retryingErroredRun = status === "errored" && activeRunAttempt < maxRunAttempts;
           await context.emitStep({
-            status: ["errored", "canceled", "discarded", "force_canceled"].includes(status) ? "failed" : "running",
-            message: `Terraform Cloud run ${runId} status: ${status}.`,
+            status: terminal && !retryingErroredRun ? "failed" : "running",
+            message: retryingErroredRun
+              ? `Terraform Cloud run ${runId} status: ${status}; retrying attempt ${activeRunAttempt + 1}/${maxRunAttempts}.`
+              : `Terraform Cloud run ${runId} status: ${status}.`,
             result_json: {
               terraform_run_id: runId,
               terraform_run_status: status,
+              terraform_run_attempt: activeRunAttempt,
+              terraform_run_max_attempts: maxRunAttempts,
               terraform_workspace: workspaceName,
               terraform_run_url: tfe.runUrl(workspaceName, runId)
             }
@@ -113,22 +132,24 @@ export class TerraformCloudProvider implements DeployStepProvider {
         buildCommit: metadata.commit,
         buildTimestamp: metadata.timestamp
       }));
-      await stage("uploading Terraform configuration", { terraform_workspace: workspaceName, terraform_workspace_id: workspaceId });
-      const configVersionId = await tfe.uploadConfiguration(workspaceId, join(sourceDir, "terraform"), operationDir);
-      await stage("creating Terraform run", { terraform_workspace: workspaceName, terraform_configuration_version_id: configVersionId });
-      const runId = await tfe.createRun(
+      const run = await executeTerraformRunWithRetries({
+        tfe,
+        context,
+        stage,
+        request,
+        stepAction: step.action,
+        stepTarget: step.target,
         workspaceId,
-        configVersionId,
-        `Platform ${step.action} ${step.target} ${request.operation_id} for ${request.app_key}`,
-        step.action === "destroy"
-      );
-      const runUrl = tfe.runUrl(workspaceName, runId);
-      await stage(`polling Terraform run ${runId}`, { terraform_run_id: runId, terraform_run_url: runUrl });
-      const runStatus = await tfe.pollRun(
-        runId,
-        parsePositiveInt(request.terraform_run_timeout_seconds, 7200),
-        parsePositiveInt(request.terraform_run_poll_seconds, 20)
-      );
+        workspaceName,
+        sourceTerraformDir: join(sourceDir, "terraform"),
+        operationDir,
+        logFile,
+        maxAttempts: maxRunAttempts,
+        retryDelaySeconds,
+        setActiveRunAttempt: (attempt) => {
+          activeRunAttempt = attempt;
+        }
+      });
       const authGatewayDelete = step.action === "destroy"
         ? await deleteAuthGatewayRegistration({ step, values, secrets, logFile })
         : null;
@@ -138,11 +159,13 @@ export class TerraformCloudProvider implements DeployStepProvider {
       const logExcerpt = await readLogExcerpt(logFile);
 
       return buildResult(context, this.mode, false, {
-        terraform_run_id: runId,
-        terraform_run_url: runUrl,
-        terraform_run_status: runStatus,
+        terraform_run_id: run.runId,
+        terraform_run_url: run.runUrl,
+        terraform_run_status: run.runStatus,
+        terraform_run_attempts: run.attempts,
+        terraform_run_max_attempts: maxRunAttempts,
         terraform_workspace_id: workspaceId,
-        terraform_configuration_version_id: configVersionId,
+        terraform_configuration_version_id: run.configVersionId,
         source_ref: ref,
         source_commit: metadata.commit,
         app_build_version: metadata.version,
@@ -162,6 +185,96 @@ export class TerraformCloudProvider implements DeployStepProvider {
       throw error;
     }
   }
+}
+
+async function executeTerraformRunWithRetries(options: {
+  tfe: TfeClient;
+  context: ProviderExecutionContext;
+  stage: StageFn;
+  request: { operation_id: string; app_key: string; terraform_run_timeout_seconds: unknown; terraform_run_poll_seconds: unknown };
+  stepAction: string;
+  stepTarget: string;
+  workspaceId: string;
+  workspaceName: string;
+  sourceTerraformDir: string;
+  operationDir: string;
+  logFile: string;
+  maxAttempts: number;
+  retryDelaySeconds: number;
+  setActiveRunAttempt: (attempt: number) => void;
+}): Promise<TerraformRunResult> {
+  const timeoutSeconds = parsePositiveInt(options.request.terraform_run_timeout_seconds, 7200);
+  const pollSeconds = parsePositiveInt(options.request.terraform_run_poll_seconds, 20);
+  let lastError: unknown;
+
+  for (let attempt = 1; attempt <= options.maxAttempts; attempt += 1) {
+    options.setActiveRunAttempt(attempt);
+    const attemptSuffix = options.maxAttempts > 1 ? ` (attempt ${attempt}/${options.maxAttempts})` : "";
+    await options.stage(`uploading Terraform configuration${attemptSuffix}`, {
+      terraform_workspace: options.workspaceName,
+      terraform_workspace_id: options.workspaceId,
+      terraform_run_attempt: attempt,
+      terraform_run_max_attempts: options.maxAttempts
+    });
+    const configVersionId = await options.tfe.uploadConfiguration(options.workspaceId, options.sourceTerraformDir, options.operationDir);
+    await options.stage(`creating Terraform run${attemptSuffix}`, {
+      terraform_workspace: options.workspaceName,
+      terraform_configuration_version_id: configVersionId,
+      terraform_run_attempt: attempt,
+      terraform_run_max_attempts: options.maxAttempts
+    });
+    const runId = await options.tfe.createRun(
+      options.workspaceId,
+      configVersionId,
+      `Platform ${options.stepAction} ${options.stepTarget} ${options.request.operation_id} for ${options.request.app_key} attempt ${attempt}/${options.maxAttempts}`,
+      options.stepAction === "destroy"
+    );
+    const runUrl = options.tfe.runUrl(options.workspaceName, runId);
+    await options.stage(`polling Terraform run ${runId}${attemptSuffix}`, {
+      terraform_run_id: runId,
+      terraform_run_url: runUrl,
+      terraform_run_attempt: attempt,
+      terraform_run_max_attempts: options.maxAttempts
+    });
+
+    try {
+      const runStatus = await options.tfe.pollRun(runId, timeoutSeconds, pollSeconds);
+      return { configVersionId, runId, runStatus, runUrl, attempts: attempt };
+    } catch (error) {
+      lastError = error;
+      if (!shouldRetryTerraformRun(error, attempt, options.maxAttempts)) {
+        throw error;
+      }
+      await appendFile(
+        options.logFile,
+        `[executor] ${new Date().toISOString()} Terraform Cloud run ${runId} ended errored; retrying in ${options.retryDelaySeconds}s (attempt ${attempt + 1}/${options.maxAttempts}).\n`,
+        "utf8"
+      );
+      await options.context.emitStep({
+        status: "running",
+        message: `Terraform Cloud run ${runId} errored; retrying in ${options.retryDelaySeconds}s.`,
+        result_json: {
+          terraform_run_id: runId,
+          terraform_run_url: runUrl,
+          terraform_run_status: "errored",
+          terraform_run_attempt: attempt,
+          terraform_run_max_attempts: options.maxAttempts,
+          terraform_retry_next_attempt: attempt + 1,
+          terraform_retry_delay_seconds: options.retryDelaySeconds,
+          terraform_workspace: options.workspaceName
+        }
+      });
+      await delay(options.retryDelaySeconds * 1000);
+    }
+  }
+
+  throw lastError instanceof Error ? lastError : new Error("Terraform Cloud run failed after retry attempts.");
+}
+
+function shouldRetryTerraformRun(error: unknown, attempt: number, maxAttempts: number): boolean {
+  return error instanceof TerraformCloudRunTerminalError
+    && error.status === "errored"
+    && attempt < maxAttempts;
 }
 
 async function appendStage(
@@ -204,10 +317,19 @@ function parsePositiveInt(value: unknown, fallback: number): number {
   return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : fallback;
 }
 
+function parseBoundedPositiveInt(value: unknown, fallback: number, min: number, max: number): number {
+  const parsed = parsePositiveInt(value, fallback);
+  return Math.max(min, Math.min(max, parsed));
+}
+
 async function readLogExcerpt(logFile: string): Promise<string> {
   try {
     return tail(await readFile(logFile, "utf8"), 8000);
   } catch {
     return "";
   }
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }

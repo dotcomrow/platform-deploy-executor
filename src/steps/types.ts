@@ -39,6 +39,8 @@ export const deployRequestSchema = z.object({
   tfe_api_base: z.string().optional().default("https://app.terraform.io/api/v2"),
   terraform_run_timeout_seconds: z.number().int().positive().or(z.string()).optional().default(7200),
   terraform_run_poll_seconds: z.number().int().positive().or(z.string()).optional().default(20),
+  terraform_run_retry_attempts: z.number().int().positive().or(z.string()).optional().default(3),
+  terraform_run_retry_delay_seconds: z.number().int().positive().or(z.string()).optional().default(60),
   openobserve_browser_rum_version: z.string().optional().default("0.3.1"),
   github_repository_variables: z.record(z.unknown()).optional().default({}),
   prepared_at: z.string().optional().default(""),

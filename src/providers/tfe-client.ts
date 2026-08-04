@@ -6,6 +6,18 @@ import { runCommand } from "../lib/command.js";
 import { httpJson } from "../lib/http.js";
 import { asRecord, asString, JsonRecord, truncate } from "../lib/json.js";
 
+export class TerraformCloudRunTerminalError extends Error {
+  readonly runId: string;
+  readonly status: string;
+
+  constructor(runId: string, status: string) {
+    super(`Terraform Cloud run ${runId} ended with status '${status}'.`);
+    this.name = "TerraformCloudRunTerminalError";
+    this.runId = runId;
+    this.status = status;
+  }
+}
+
 type TfeClientOptions = {
   apiBase: string;
   token: string;
@@ -285,7 +297,7 @@ export class TfeClient {
         return status;
       }
       if (["errored", "canceled", "discarded", "force_canceled"].includes(status)) {
-        throw new Error(`Terraform Cloud run ${runId} ended with status '${status}'.`);
+        throw new TerraformCloudRunTerminalError(runId, status);
       }
       await new Promise((resolve) => setTimeout(resolve, pollSeconds * 1000));
     }

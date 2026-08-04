@@ -52,6 +52,7 @@ spec:
   template:
     metadata:
       annotations:
+        platform.suncoast.systems/restart-revision: "2026-08-04-terraform-run-retry"
         reloader.stakater.com/auto: "true"
       labels:
         app: platform-deploy-executor
