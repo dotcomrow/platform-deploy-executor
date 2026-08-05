@@ -45,6 +45,7 @@ export const openApiSpec = {
           sequence: { type: "string", enum: ["create", "recreate", "destroy"] },
           deployment_strategy: { type: "string", enum: ["terraform_cloud", "local_terraform"] },
           app_id: { type: "string" },
+          organization_id: { type: "string" },
           app_key: { type: "string" },
           site_key: { type: "string" },
           keycloak_realm: { type: "string", enum: ["internal", "external"] },

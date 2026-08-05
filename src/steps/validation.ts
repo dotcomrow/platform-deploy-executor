@@ -49,6 +49,7 @@ export function parseDeployRequest(operationId: string, step: DeploymentStepName
     const missing = [
       ["terraform_project", payload.terraform_project],
       ["terraform_cloud_organization", payload.terraform_cloud_organization],
+      ["organization_id", payload.organization_id],
       ["github_repository", payload.github_repository],
       ["github_ref", payload.github_ref]
     ].filter(([, value]) => !String(value ?? "").trim());

@@ -94,6 +94,8 @@ export function workspaceVars(options: {
     tv("app_auth_app_slug_preview", options.values.appAuthSlugPreview, "auth gateway app slug for preview login"),
     tv("app_auth_base_url_production", options.values.appAuthBaseUrlProduction, "auth gateway base URL for production app registration"),
     tv("app_auth_base_url_preview", options.values.appAuthBaseUrlPreview, "auth gateway base URL for preview app registration"),
+    tv("platform_notification_organization_id", options.request.organization_id, "platform notification organization scope"),
+    tv("platform_notification_app_id", options.request.app_id, "platform notification app scope"),
     tv("deployment_environment", deploymentEnvironment, "deployment environment"),
     tv("d1_dev_cache_name", options.values.d1DevCacheName, "preview D1 cache database name"),
     tv("d1_prod_cache_name", options.values.d1ProdCacheName, "production D1 cache database name"),
