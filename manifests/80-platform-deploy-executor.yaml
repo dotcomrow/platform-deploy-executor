@@ -4,6 +4,90 @@ metadata:
   name: platform-deploy-executor
   namespace: directus
 ---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: platform-deploy-executor-secret-bootstrap
+  namespace: directus
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+    argocd.argoproj.io/sync-options: Force=true
+spec:
+  backoffLimit: 3
+  template:
+    metadata:
+      annotations:
+        linkerd.io/inject: "disabled"
+    spec:
+      serviceAccountName: directus
+      restartPolicy: Never
+      volumes:
+        - name: vault-root-token
+          secret:
+            secretName: vault-root-token
+      containers:
+        - name: bootstrap
+          image: alpine/k8s:1.31.4
+          imagePullPolicy: IfNotPresent
+          volumeMounts:
+            - name: vault-root-token
+              mountPath: /vault-token
+              readOnly: true
+          command:
+            - /bin/sh
+            - -ec
+          args:
+            - |
+              apk add --no-cache curl jq >/dev/null
+
+              VAULT_ADDR="http://vault.vault.svc.cluster.local:8200"
+              VAULT_TOKEN="$(cat /vault-token/VAULT_TOKEN)"
+
+              cat >/tmp/platform-deploy-executor-policy.hcl <<'EOF'
+              path "secret/data/platform-deploy-service" {
+                capabilities = ["read"]
+              }
+
+              path "secret/data/platform-deploy-service/*" {
+                capabilities = ["read"]
+              }
+
+              path "secret/data/auth-gateway-admin-api" {
+                capabilities = ["read"]
+              }
+              EOF
+
+              policy_payload="$(jq -Rs '{policy:.}' /tmp/platform-deploy-executor-policy.hcl)"
+              policy_code="$(curl -sS -o /tmp/platform-deploy-executor-policy-write.json -w '%{http_code}' \
+                -X PUT \
+                -H "X-Vault-Token: ${VAULT_TOKEN}" \
+                -H "Content-Type: application/json" \
+                -d "${policy_payload}" \
+                "${VAULT_ADDR}/v1/sys/policies/acl/platform-deploy-executor" || true)"
+              if [ "${policy_code}" != "200" ] && [ "${policy_code}" != "204" ]; then
+                echo "Failed to write platform-deploy-executor Vault policy (HTTP ${policy_code})."
+                cat /tmp/platform-deploy-executor-policy-write.json || true
+                exit 1
+              fi
+
+              role_payload="$(jq -nc '{
+                bound_service_account_names:["platform-deploy-executor"],
+                bound_service_account_namespaces:["directus"],
+                token_policies:["platform-deploy-executor"],
+                token_ttl:"24h"
+              }')"
+              role_code="$(curl -sS -o /tmp/platform-deploy-executor-role-write.json -w '%{http_code}' \
+                -X POST \
+                -H "X-Vault-Token: ${VAULT_TOKEN}" \
+                -H "Content-Type: application/json" \
+                -d "${role_payload}" \
+                "${VAULT_ADDR}/v1/auth/kubernetes/role/platform-deploy-executor" || true)"
+              if [ "${role_code}" != "200" ] && [ "${role_code}" != "204" ]; then
+                echo "Failed to write platform-deploy-executor Vault Kubernetes auth role (HTTP ${role_code})."
+                cat /tmp/platform-deploy-executor-role-write.json || true
+                exit 1
+              fi
+---
 apiVersion: v1
 kind: ConfigMap
 metadata:
