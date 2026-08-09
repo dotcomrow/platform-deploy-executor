@@ -218,6 +218,10 @@ spec:
               value: "secret/data/platform-deploy-service"
             - name: CLOUDFLARE_ZONE_ID_VAULT_KEYS
               value: "cloudflare_zone_id,cloudflare-zone-id"
+            - name: PRODUCTION_DEPLOY_READY_TIMEOUT_MS
+              value: "600000"
+            - name: PRODUCTION_DEPLOY_READY_POLL_MS
+              value: "2000"
             - name: REQUEST_TIMEOUT_MS
               value: "15000"
             - name: RATE_MAX

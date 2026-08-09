@@ -30,9 +30,6 @@ type OperationStepResponse = {
 type OperationStepStatus = "queued" | "running" | "succeeded" | "failed" | "canceled" | "unknown";
 type OperationStepRecord = Record<string, unknown>;
 
-const PRODUCTION_DEPLOY_READY_TIMEOUT_MS = 60_000;
-const PRODUCTION_DEPLOY_READY_POLL_MS = 2_000;
-
 function operationStepStatus(value: unknown): OperationStepStatus {
   const normalized = asString(value, "unknown").toLowerCase();
   if (["queued", "running", "succeeded", "failed", "canceled"].includes(normalized)) {
@@ -104,7 +101,7 @@ export async function assertProductionDeploySucceeded(request: DeployRequest): P
     throw Object.assign(new Error("Internal auth token is not configured."), { status: 503 });
   }
 
-  const deadline = Date.now() + PRODUCTION_DEPLOY_READY_TIMEOUT_MS;
+  const deadline = Date.now() + config.productionDeployReadyTimeoutMs;
   let lastStatus: OperationStepStatus | "missing" = "missing";
 
   while (Date.now() <= deadline) {
@@ -134,7 +131,7 @@ export async function assertProductionDeploySucceeded(request: DeployRequest): P
       }
     }
 
-    await wait(Math.min(PRODUCTION_DEPLOY_READY_POLL_MS, Math.max(0, deadline - Date.now())));
+    await wait(Math.min(config.productionDeployReadyPollMs, Math.max(0, deadline - Date.now())));
   }
 
   throw Object.assign(
