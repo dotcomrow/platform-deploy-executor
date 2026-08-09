@@ -20,6 +20,13 @@ type OperationStepsResponse = {
   steps?: unknown[];
 };
 
+type OperationStepResponse = {
+  ok?: boolean;
+  operation_id?: string;
+  step_key?: string;
+  step?: unknown;
+};
+
 type OperationStepStatus = "queued" | "running" | "succeeded" | "failed" | "canceled" | "unknown";
 type OperationStepRecord = Record<string, unknown>;
 
@@ -141,6 +148,41 @@ export async function assertProductionDeploySucceeded(request: DeployRequest): P
 }
 
 async function getProductionDeployStep(request: DeployRequest, token: string): Promise<OperationStepRecord | null> {
+  const stepResult = await httpJson<OperationStepResponse>(
+    `${config.platformDeployServiceUrl}/internal/operations/${encodeURIComponent(request.operation_id)}/steps/prod-deploy?_cb=${encodeURIComponent(randomUUID())}`,
+    {
+      timeoutMs: config.requestTimeoutMs,
+      headers: {
+        authorization: `Bearer ${token}`,
+        "cache-control": "no-store"
+      }
+    }
+  );
+
+  if (stepResult.statusCode === 404) {
+    return getProductionDeployStepFromList(request, token);
+  }
+
+  if (stepResult.statusCode >= 400) {
+    throw Object.assign(
+      new Error(`Operation prod-deploy preflight failed HTTP ${stepResult.statusCode}: ${truncate(stepResult.text, 700)}`),
+      { status: stepResult.statusCode }
+    );
+  }
+
+  const stepPayload = asRecord(stepResult.payload);
+  if (!stepPayload) {
+    throw Object.assign(new Error("Operation prod-deploy response was not a JSON object."), { status: 502 });
+  }
+  const operationId = asString(stepPayload.operation_id);
+  if (operationId !== request.operation_id) {
+    throw Object.assign(new Error("Operation prod-deploy response id did not match request."), { status: 502 });
+  }
+  const step = asRecord(stepPayload.step);
+  return step ?? null;
+}
+
+async function getProductionDeployStepFromList(request: DeployRequest, token: string): Promise<OperationStepRecord | null> {
   const result = await httpJson<OperationStepsResponse>(
     `${config.platformDeployServiceUrl}/internal/operations/${encodeURIComponent(request.operation_id)}/steps?_cb=${encodeURIComponent(randomUUID())}`,
     {
