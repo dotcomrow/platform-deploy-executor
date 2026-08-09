@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { config } from "../config.js";
 import { httpJson } from "../lib/http.js";
 import { asBoolean, asRecord, asString, truncate } from "../lib/json.js";
@@ -44,7 +45,7 @@ export async function assertOperationActive(request: DeployRequest): Promise<voi
   }
 
   const result = await httpJson<OperationStatusResponse>(
-    `${config.platformDeployServiceUrl}/internal/operations/${encodeURIComponent(request.operation_id)}/status`,
+    `${config.platformDeployServiceUrl}/internal/operations/${encodeURIComponent(request.operation_id)}/status?_cb=${encodeURIComponent(randomUUID())}`,
     {
       timeoutMs: config.requestTimeoutMs,
       headers: { authorization: `Bearer ${token}` }
@@ -141,7 +142,7 @@ export async function assertProductionDeploySucceeded(request: DeployRequest): P
 
 async function getProductionDeployStep(request: DeployRequest, token: string): Promise<OperationStepRecord | null> {
   const result = await httpJson<OperationStepsResponse>(
-    `${config.platformDeployServiceUrl}/internal/operations/${encodeURIComponent(request.operation_id)}/steps`,
+    `${config.platformDeployServiceUrl}/internal/operations/${encodeURIComponent(request.operation_id)}/steps?_cb=${encodeURIComponent(randomUUID())}`,
     {
       timeoutMs: config.requestTimeoutMs,
       headers: {
