@@ -32,6 +32,15 @@ export function parseGitHubFullName(sourceRepository: string): string {
   }
 }
 
+function normalizeAuthenticatedGitSource(sourceRepository: string): string {
+  const value = normalizeGitSource(sourceRepository);
+  const ssh = value.match(/^git@github\.com:([^/]+)\/(.+)$/i);
+  if (!ssh) {
+    return value;
+  }
+  return `https://github.com/${ssh[1]}/${ssh[2].replace(/\.git$/i, "")}.git`;
+}
+
 export async function checkoutSource(options: {
   sourceRepository: string;
   ref: string;
@@ -42,22 +51,25 @@ export async function checkoutSource(options: {
   await rm(options.targetDir, { recursive: true, force: true });
   await mkdir(dirname(options.targetDir), { recursive: true });
 
-  const cloneUrl = normalizeGitSource(options.sourceRepository);
-  const cloneArgs = ["clone", "--depth", "1", "--branch", options.ref, cloneUrl, options.targetDir];
+  const cloneUrl = options.githubToken
+    ? normalizeAuthenticatedGitSource(options.sourceRepository)
+    : normalizeGitSource(options.sourceRepository);
   const secrets = options.githubToken ? [options.githubToken] : [];
   const env: Record<string, string | undefined> = {};
+  const gitConfigArgs: string[] = [];
   if (options.githubToken && cloneUrl.startsWith("https://github.com/")) {
     const header = Buffer.from(`x-access-token:${options.githubToken}`, "utf8").toString("base64");
-    cloneArgs.unshift("-c", `http.https://github.com/.extraheader=AUTHORIZATION: basic ${header}`);
+    gitConfigArgs.push("-c", `http.https://github.com/.extraheader=AUTHORIZATION: basic ${header}`);
     secrets.push(header);
   }
+  const cloneArgs = [...gitConfigArgs, "clone", "--depth", "1", "--branch", options.ref, cloneUrl, options.targetDir];
 
   try {
     await runCommand("git", cloneArgs, { logFile: options.logFile, secrets, env });
   } catch {
     await rm(options.targetDir, { recursive: true, force: true });
     await mkdir(dirname(options.targetDir), { recursive: true });
-    await runCommand("git", ["clone", cloneUrl, options.targetDir], { logFile: options.logFile, secrets, env });
+    await runCommand("git", [...gitConfigArgs, "clone", cloneUrl, options.targetDir], { logFile: options.logFile, secrets, env });
     await runCommand("git", ["checkout", options.ref], { cwd: options.targetDir, logFile: options.logFile, secrets, env });
   }
 

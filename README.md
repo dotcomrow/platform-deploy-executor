@@ -47,6 +47,11 @@ Health and contract endpoints:
 - `INTERNAL_TOKEN`: optional static internal token for local development
 - `INTERNAL_TOKEN_VAULT_PATH`: defaults to `secret/data/platform-deploy-service`
 - `INTERNAL_TOKEN_VAULT_KEY`: defaults to `token`
+- `GITHUB_AUTH_MODE`: `auto`, `token`, or `github_app`; defaults to `auto`
+- `GITHUB_TOKEN_VAULT_PATH`: defaults to `secret/data/platform-deploy-service/github`
+- `GITHUB_APP_ID_VAULT_PATH`: defaults to `secret/data/platform-deploy-service/github`
+- `GITHUB_APP_INSTALLATION_ID_VAULT_PATH`: defaults to `secret/data/platform-deploy-service/github`
+- `GITHUB_APP_PRIVATE_KEY_VAULT_PATH`: defaults to `secret/data/platform-deploy-service/github`
 - `TFE_TOKEN_VAULT_PATH`: defaults to `secret/data/platform-deploy-service`
 - `TFE_AGENT_POOL_ID_VAULT_PATH`: defaults to `secret/data/platform-deploy-service`
 - `TFE_ORGANIZATION_VAULT_PATH`: defaults to `secret/data/platform-deploy-service`

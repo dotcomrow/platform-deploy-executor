@@ -38,7 +38,9 @@ export class TerraformCloudProvider implements DeployStepProvider {
       await stage(`starting ${step.name} for ${request.app_key}`);
 
       await stage("resolving deployment secrets");
-      const secrets = await resolveTerraformCloudSecrets();
+      const secrets = await resolveTerraformCloudSecrets({
+        githubApiBase: request.github_api_base || config.githubApiBase
+      });
       if (!secrets.tfeToken) {
         throw Object.assign(new Error("Terraform Cloud token is not configured."), { status: 503 });
       }

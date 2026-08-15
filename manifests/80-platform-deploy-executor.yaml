@@ -202,6 +202,20 @@ spec:
               value: "secret/data/platform-deploy-service/github"
             - name: GITHUB_TOKEN_VAULT_KEYS
               value: "token,github_token,github-token"
+            - name: GITHUB_AUTH_MODE
+              value: "auto"
+            - name: GITHUB_APP_ID_VAULT_PATH
+              value: "secret/data/platform-deploy-service/github"
+            - name: GITHUB_APP_ID_VAULT_KEYS
+              value: "app_id,github_app_id,github-app-id"
+            - name: GITHUB_APP_INSTALLATION_ID_VAULT_PATH
+              value: "secret/data/platform-deploy-service/github"
+            - name: GITHUB_APP_INSTALLATION_ID_VAULT_KEYS
+              value: "installation_id,github_app_installation_id,github-app-installation-id"
+            - name: GITHUB_APP_PRIVATE_KEY_VAULT_PATH
+              value: "secret/data/platform-deploy-service/github"
+            - name: GITHUB_APP_PRIVATE_KEY_VAULT_KEYS
+              value: "private_key,github_app_private_key,github-app-private-key"
             - name: APP_AUTH_GATEWAY_ADMIN_TOKEN_VAULT_PATH
               value: "secret/data/auth-gateway-admin-api"
             - name: APP_AUTH_GATEWAY_ADMIN_TOKEN_VAULT_KEYS
