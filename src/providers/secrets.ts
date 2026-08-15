@@ -3,6 +3,7 @@ import { optionalVaultValue } from "../lib/vault.js";
 import { createGitHubInstallationToken } from "../source/github-app-auth.js";
 
 export type GitHubSourceAuthMode = "none" | "token" | "github_app";
+type ConfiguredGitHubSourceAuthMode = "auto" | "token" | "github_app";
 
 export type TerraformCloudSecrets = {
   githubToken: string;
@@ -58,11 +59,7 @@ async function resolveGitHubSourceCredentials(options: {
   githubApiBase: string;
   staticToken: string;
 }): Promise<{ mode: GitHubSourceAuthMode; privateKey: string; token: string }> {
-  const mode = config.githubAuthMode;
-  if (mode !== "github_app" && options.staticToken) {
-    return { mode: "token", privateKey: "", token: options.staticToken };
-  }
-
+  const mode = await resolveConfiguredGitHubSourceAuthMode();
   if (mode === "token") {
     return { mode: options.staticToken ? "token" : "none", privateKey: "", token: options.staticToken };
   }
@@ -73,6 +70,10 @@ async function resolveGitHubSourceCredentials(options: {
   const privateKey = config.githubAppPrivateKey
     || await optionalVaultValue(config.githubAppPrivateKeyVaultPath, config.githubAppPrivateKeyVaultKeys);
   const hasGitHubAppCredentials = Boolean(appId && installationId && privateKey);
+
+  if (mode === "auto" && options.staticToken) {
+    return { mode: "token", privateKey: "", token: options.staticToken };
+  }
 
   if (!hasGitHubAppCredentials) {
     if (mode === "github_app") {
@@ -92,4 +93,24 @@ async function resolveGitHubSourceCredentials(options: {
     timeoutMs: config.requestTimeoutMs
   });
   return { mode: "github_app", privateKey, token: installationToken.token };
+}
+
+async function resolveConfiguredGitHubSourceAuthMode(): Promise<ConfiguredGitHubSourceAuthMode> {
+  if (config.githubAuthMode !== "auto") {
+    return config.githubAuthMode;
+  }
+
+  const vaultMode = await optionalVaultValue(config.githubAuthModeVaultPath, config.githubAuthModeVaultKeys);
+  return normalizeConfiguredGitHubSourceAuthMode(vaultMode);
+}
+
+function normalizeConfiguredGitHubSourceAuthMode(value: string): ConfiguredGitHubSourceAuthMode {
+  const normalized = value.trim().toLowerCase().replace(/[-\s]+/g, "_");
+  if (normalized === "github_app") {
+    return "github_app";
+  }
+  if (normalized === "token") {
+    return "token";
+  }
+  return "auto";
 }

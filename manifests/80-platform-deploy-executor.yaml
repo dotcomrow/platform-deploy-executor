@@ -204,6 +204,10 @@ spec:
               value: "token,github_token,github-token"
             - name: GITHUB_AUTH_MODE
               value: "auto"
+            - name: GITHUB_AUTH_MODE_VAULT_PATH
+              value: "secret/data/platform-deploy-service/github"
+            - name: GITHUB_AUTH_MODE_VAULT_KEYS
+              value: "github_auth_mode,auth_mode,github-auth-mode"
             - name: GITHUB_APP_ID_VAULT_PATH
               value: "secret/data/platform-deploy-service/github"
             - name: GITHUB_APP_ID_VAULT_KEYS
