@@ -2,6 +2,8 @@ import { createSign } from "node:crypto";
 import { httpErrorMessage, httpJson } from "../lib/http.js";
 import { JsonRecord, truncate } from "../lib/json.js";
 
+const GITHUB_APP_AUTH_USER_AGENT = "suncoast-platform-deploy-executor";
+
 type GitHubInstallationTokenResponse = {
   token?: string;
   expires_at?: string;
@@ -54,6 +56,7 @@ export async function createGitHubInstallationToken(options: {
       headers: {
         authorization: `Bearer ${jwt}`,
         accept: "application/vnd.github+json",
+        "user-agent": GITHUB_APP_AUTH_USER_AGENT,
         "x-github-api-version": "2022-11-28"
       },
       timeoutMs: options.timeoutMs
