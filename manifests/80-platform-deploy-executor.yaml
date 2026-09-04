@@ -213,6 +213,10 @@ spec:
               value: "openobserve-sourcemap-upload-auth-token"
             - name: DEFAULT_OPENOBSERVE_SOURCEMAP_UPLOAD_AUTH_TOKEN_VAULT_FIELD
               value: "value"
+            - name: DEFAULT_OPENOBSERVE_SOURCEMAP_CLEANUP_ENABLED
+              value: "true"
+            - name: DEFAULT_OPENOBSERVE_SOURCEMAP_RETENTION_DAYS
+              value: "14"
             - name: TFE_TOKEN_VAULT_PATH
               value: "secret/data/platform-deploy-service"
             - name: TFE_TOKEN_VAULT_KEYS
