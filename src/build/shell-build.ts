@@ -12,6 +12,7 @@ export type BuildMetadata = {
 export type BuildArtifactsResult = {
   openObserveSourceMapsRequested: boolean;
   openObserveSourceMapsStaged: boolean;
+  openObserveSourceMapsArchivePath?: string;
 };
 
 export function buildMetadata(ref: string, operationId: string, commit: string): BuildMetadata {
@@ -106,7 +107,8 @@ export async function buildShellArtifacts(options: {
   await stat(archivePath);
   return {
     openObserveSourceMapsRequested: true,
-    openObserveSourceMapsStaged: true
+    openObserveSourceMapsStaged: true,
+    openObserveSourceMapsArchivePath: archivePath
   };
 }
 

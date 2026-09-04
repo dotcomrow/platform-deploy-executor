@@ -57,6 +57,10 @@ spec:
               path "secret/data/auth-gateway-admin-api" {
                 capabilities = ["read"]
               }
+
+              path "secret/data/openobserve-sourcemap-upload-auth-token" {
+                capabilities = ["read"]
+              }
               EOF
 
               policy_payload="$(jq -Rs '{policy:.}' /tmp/platform-deploy-executor-policy.hcl)"

@@ -6,6 +6,7 @@ import { asBoolean } from "../lib/json.js";
 import { buildMetadata, buildShellArtifacts } from "../build/shell-build.js";
 import { checkoutSource } from "../source/git-source.js";
 import { deleteAuthGatewayRegistration } from "./auth-gateway.js";
+import { uploadOpenObserveSourceMaps } from "./openobserve-sourcemaps.js";
 import { sourceRefFor, terraformWorkspaceFor, buildResult, DeployStepProvider, ProviderExecutionContext } from "./provider.js";
 import { resolveDeployValues, workspaceVars } from "./deploy-values.js";
 import { resolveTerraformCloudSecrets } from "./secrets.js";
@@ -138,7 +139,7 @@ export class TerraformCloudProvider implements DeployStepProvider {
         buildVersion: metadata.version,
         buildCommit: metadata.commit,
         buildTimestamp: metadata.timestamp,
-        openObserveSourceMapUploadEnabled: buildArtifacts.openObserveSourceMapsStaged
+        openObserveSourceMapUploadEnabled: false
       }));
       const run = await executeTerraformRunWithRetries({
         tfe,
@@ -158,6 +159,37 @@ export class TerraformCloudProvider implements DeployStepProvider {
           activeRunAttempt = attempt;
         }
       });
+
+      let openObserveSourceMapsUpload: Record<string, unknown> | null = null;
+      if (step.action === "deploy" && buildArtifacts.openObserveSourceMapsStaged && buildArtifacts.openObserveSourceMapsArchivePath) {
+        await stage("uploading OpenObserve source maps from executor", {
+          openobserve_sourcemaps_archive: buildArtifacts.openObserveSourceMapsArchivePath,
+          openobserve_sourcemaps_tfc_upload_enabled: false
+        });
+        try {
+          openObserveSourceMapsUpload = await uploadOpenObserveSourceMaps({
+            archivePath: buildArtifacts.openObserveSourceMapsArchivePath,
+            logFile,
+            metadata,
+            request,
+            target: step.target,
+            values
+          });
+          await stage("uploaded OpenObserve source maps from executor", openObserveSourceMapsUpload);
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          openObserveSourceMapsUpload = { uploaded: false, error_message: message };
+          await appendFile(logFile, `[executor] ${new Date().toISOString()} OpenObserve source-map upload failed after Terraform deploy; continuing: ${message}\n`, "utf8");
+          await context.emitStep({
+            status: "running",
+            message: "OpenObserve source-map upload failed after deploy; continuing.",
+            result_json: {
+              openobserve_sourcemaps_upload: openObserveSourceMapsUpload,
+              openobserve_sourcemaps_tfc_upload_enabled: false
+            }
+          });
+        }
+      }
       const authGatewayDelete = step.action === "destroy"
         ? await deleteAuthGatewayRegistration({ step, values, secrets, logFile })
         : null;
@@ -180,6 +212,8 @@ export class TerraformCloudProvider implements DeployStepProvider {
         app_build_timestamp: metadata.timestamp,
         openobserve_sourcemaps_requested: buildArtifacts.openObserveSourceMapsRequested,
         openobserve_sourcemaps_staged: buildArtifacts.openObserveSourceMapsStaged,
+        openobserve_sourcemaps_tfc_upload_enabled: false,
+        ...(openObserveSourceMapsUpload ? { openobserve_sourcemaps_upload: openObserveSourceMapsUpload } : {}),
         ...(authGatewayDelete ? { auth_gateway_delete: authGatewayDelete } : {}),
         ...(workspaceDelete ? { terraform_workspace_delete: workspaceDelete } : {}),
         log_excerpt: logExcerpt
