@@ -1,4 +1,6 @@
 import { DeployRequest, StepDefinition } from "../steps/types.js";
+import { config } from "../config.js";
+import { asBoolean } from "../lib/json.js";
 import { parseGitHubFullName } from "../source/git-source.js";
 import { TerraformCloudSecrets } from "./secrets.js";
 import { TerraformVar } from "./tfe-client.js";
@@ -24,6 +26,13 @@ export type ResolvedDeployValues = {
   d1ProdCacheName: string;
   r2DevMediaCacheName: string;
   r2ProdMediaCacheName: string;
+  openObserveOrganizationIdentifier: string;
+  openObserveSourceMapUploadUrl: string;
+  openObserveSourceMapUploadAuthScheme: string;
+  openObserveSourceMapUploadAuthTokenLookupFromVault: boolean;
+  openObserveSourceMapUploadAuthTokenVaultMount: string;
+  openObserveSourceMapUploadAuthTokenVaultName: string;
+  openObserveSourceMapUploadAuthTokenVaultField: string;
 };
 
 export function resolveDeployValues(request: DeployRequest, secrets: TerraformCloudSecrets): ResolvedDeployValues {
@@ -58,7 +67,20 @@ export function resolveDeployValues(request: DeployRequest, secrets: TerraformCl
     d1DevCacheName: `${projectSlug}-dev-cache`,
     d1ProdCacheName: `${projectSlug}-prod-cache`,
     r2DevMediaCacheName: `${projectSlug}-dev-media-cache`,
-    r2ProdMediaCacheName: `${projectSlug}-prod-media-cache`
+    r2ProdMediaCacheName: `${projectSlug}-prod-media-cache`,
+    openObserveOrganizationIdentifier: request.app_log_openobserve_organization_identifier.trim() || config.defaultOpenObserveSourceMapOrg,
+    openObserveSourceMapUploadUrl: trimTrailingSlash(request.openobserve_sourcemap_upload_url.trim() || config.defaultOpenObserveSourceMapUploadUrl),
+    openObserveSourceMapUploadAuthScheme: request.openobserve_sourcemap_upload_auth_scheme.trim() || config.defaultOpenObserveSourceMapUploadAuthScheme,
+    openObserveSourceMapUploadAuthTokenLookupFromVault: asBoolean(
+      request.openobserve_sourcemap_upload_auth_token_lookup_from_vault,
+      config.defaultOpenObserveSourceMapUploadAuthTokenLookupFromVault
+    ),
+    openObserveSourceMapUploadAuthTokenVaultMount: request.openobserve_sourcemap_upload_auth_token_vault_mount.trim()
+      || config.defaultOpenObserveSourceMapUploadAuthTokenVaultMount,
+    openObserveSourceMapUploadAuthTokenVaultName: request.openobserve_sourcemap_upload_auth_token_vault_name.trim()
+      || config.defaultOpenObserveSourceMapUploadAuthTokenVaultName,
+    openObserveSourceMapUploadAuthTokenVaultField: request.openobserve_sourcemap_upload_auth_token_vault_field.trim()
+      || config.defaultOpenObserveSourceMapUploadAuthTokenVaultField
   };
 }
 
@@ -70,6 +92,7 @@ export function workspaceVars(options: {
   buildVersion: string;
   buildCommit: string;
   buildTimestamp: string;
+  openObserveSourceMapUploadEnabled: boolean;
 }): TerraformVar[] {
   const deploymentEnvironment = options.step.target === "production" ? "production" : "preview";
   const ownsSharedResources = options.step.target === "production";
@@ -104,6 +127,19 @@ export function workspaceVars(options: {
     tv("app_build_version", options.buildVersion, "application build version"),
     tv("app_build_commit", options.buildCommit, "application build commit"),
     tv("app_build_timestamp", options.buildTimestamp, "application build timestamp"),
+    tv("app_log_openobserve_organization_identifier", options.values.openObserveOrganizationIdentifier, "OpenObserve organization identifier"),
+    tv("openobserve_sourcemap_upload_enabled", String(options.openObserveSourceMapUploadEnabled), "upload staged OpenObserve source maps", true),
+    tv("openobserve_sourcemap_upload_url", options.values.openObserveSourceMapUploadUrl, "OpenObserve source-map upload API base URL"),
+    tv("openobserve_sourcemap_upload_auth_scheme", options.values.openObserveSourceMapUploadAuthScheme, "OpenObserve source-map upload auth scheme"),
+    tv(
+      "openobserve_sourcemap_upload_auth_token_lookup_from_vault",
+      String(options.values.openObserveSourceMapUploadAuthTokenLookupFromVault),
+      "resolve OpenObserve source-map upload auth from Vault",
+      true
+    ),
+    tv("openobserve_sourcemap_upload_auth_token_vault_mount", options.values.openObserveSourceMapUploadAuthTokenVaultMount, "OpenObserve source-map auth Vault mount"),
+    tv("openobserve_sourcemap_upload_auth_token_vault_name", options.values.openObserveSourceMapUploadAuthTokenVaultName, "OpenObserve source-map auth Vault secret name"),
+    tv("openobserve_sourcemap_upload_auth_token_vault_field", options.values.openObserveSourceMapUploadAuthTokenVaultField, "OpenObserve source-map auth Vault field"),
     tv("cloudflare_token", options.secrets.cloudflareToken, "Cloudflare API token", false, true),
     tv("cloudflare_account_id", options.secrets.cloudflareAccountId, "Cloudflare account id"),
     tv("cloudflare_zone_id", options.secrets.cloudflareZoneId, "Cloudflare zone id")

@@ -2,6 +2,7 @@ import { appendFile, mkdir, readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { config } from "../config.js";
 import { tail } from "../lib/command.js";
+import { asBoolean } from "../lib/json.js";
 import { buildMetadata, buildShellArtifacts } from "../build/shell-build.js";
 import { checkoutSource } from "../source/git-source.js";
 import { deleteAuthGatewayRegistration } from "./auth-gateway.js";
@@ -111,13 +112,17 @@ export class TerraformCloudProvider implements DeployStepProvider {
         logFile
       });
       const metadata = buildMetadata(ref, request.operation_id, checkout.commit);
+      const shouldStageOpenObserveSourceMaps = step.action === "deploy"
+        && asBoolean(request.openobserve_sourcemaps_enabled, config.defaultOpenObserveSourceMapsEnabled);
       await stage(step.action === "destroy" ? "building shell artifacts for Terraform destroy plan" : "building shell artifacts", {
         source_ref: ref,
-        source_commit: metadata.commit
+        source_commit: metadata.commit,
+        openobserve_sourcemaps_requested: shouldStageOpenObserveSourceMaps
       });
-      await buildShellArtifacts({
+      const buildArtifacts = await buildShellArtifacts({
         sourceDir,
         openObserveBrowserRumVersion: request.openobserve_browser_rum_version,
+        enableOpenObserveSourceMaps: shouldStageOpenObserveSourceMaps,
         logFile,
         secrets: secrets.redactedValues
       });
@@ -132,7 +137,8 @@ export class TerraformCloudProvider implements DeployStepProvider {
         secrets,
         buildVersion: metadata.version,
         buildCommit: metadata.commit,
-        buildTimestamp: metadata.timestamp
+        buildTimestamp: metadata.timestamp,
+        openObserveSourceMapUploadEnabled: buildArtifacts.openObserveSourceMapsStaged
       }));
       const run = await executeTerraformRunWithRetries({
         tfe,
@@ -172,6 +178,8 @@ export class TerraformCloudProvider implements DeployStepProvider {
         source_commit: metadata.commit,
         app_build_version: metadata.version,
         app_build_timestamp: metadata.timestamp,
+        openobserve_sourcemaps_requested: buildArtifacts.openObserveSourceMapsRequested,
+        openobserve_sourcemaps_staged: buildArtifacts.openObserveSourceMapsStaged,
         ...(authGatewayDelete ? { auth_gateway_delete: authGatewayDelete } : {}),
         ...(workspaceDelete ? { terraform_workspace_delete: workspaceDelete } : {}),
         log_excerpt: logExcerpt

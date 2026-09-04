@@ -57,7 +57,16 @@ export const openApiSpec = {
           terraform_project: { type: "string" },
           terraform_cloud_organization: { type: "string" },
           terraform_run_retry_attempts: { type: "integer", minimum: 1, maximum: 10, default: 3 },
-          terraform_run_retry_delay_seconds: { type: "integer", minimum: 1, maximum: 600, default: 60 }
+          terraform_run_retry_delay_seconds: { type: "integer", minimum: 1, maximum: 600, default: 60 },
+          openobserve_browser_rum_version: { type: "string", default: "0.3.1" },
+          openobserve_sourcemaps_enabled: { oneOf: [{ type: "boolean" }, { type: "string" }], default: true },
+          openobserve_sourcemap_upload_url: { type: "string" },
+          openobserve_sourcemap_upload_auth_scheme: { type: "string", enum: ["Basic", "Bearer"] },
+          openobserve_sourcemap_upload_auth_token_lookup_from_vault: { oneOf: [{ type: "boolean" }, { type: "string" }], default: true },
+          openobserve_sourcemap_upload_auth_token_vault_mount: { type: "string" },
+          openobserve_sourcemap_upload_auth_token_vault_name: { type: "string" },
+          openobserve_sourcemap_upload_auth_token_vault_field: { type: "string" },
+          app_log_openobserve_organization_identifier: { type: "string" }
         }
       },
       StepResponse: {

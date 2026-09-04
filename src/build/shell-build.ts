@@ -1,4 +1,4 @@
-import { cp, mkdir, readdir, rm, stat } from "node:fs/promises";
+import { appendFile, cp, mkdir, readFile, readdir, rm, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { config } from "../config.js";
 import { runCommand } from "../lib/command.js";
@@ -7,6 +7,11 @@ export type BuildMetadata = {
   version: string;
   commit: string;
   timestamp: string;
+};
+
+export type BuildArtifactsResult = {
+  openObserveSourceMapsRequested: boolean;
+  openObserveSourceMapsStaged: boolean;
 };
 
 export function buildMetadata(ref: string, operationId: string, commit: string): BuildMetadata {
@@ -24,9 +29,20 @@ export function buildMetadata(ref: string, operationId: string, commit: string):
 export async function buildShellArtifacts(options: {
   sourceDir: string;
   openObserveBrowserRumVersion: string;
+  enableOpenObserveSourceMaps: boolean;
   logFile: string;
   secrets?: string[];
-}): Promise<void> {
+}): Promise<BuildArtifactsResult> {
+  const hasSourceMapStageScript = await packageScriptExists(options.sourceDir, "openobserve:sourcemaps:stage");
+  const sourceMapsEnabled = options.enableOpenObserveSourceMaps && hasSourceMapStageScript;
+  if (options.enableOpenObserveSourceMaps && !hasSourceMapStageScript) {
+    await appendFile(
+      options.logFile,
+      "[executor] OpenObserve source-map upload was requested, but package.json has no openobserve:sourcemaps:stage script; continuing without source-map upload.\n",
+      "utf8"
+    );
+  }
+
   await runCommand("npm", ["ci", "--include=dev"], {
     cwd: options.sourceDir,
     env: {
@@ -42,6 +58,9 @@ export async function buildShellArtifacts(options: {
 
   await runCommand("npm", ["run", "cf:build"], {
     cwd: options.sourceDir,
+    env: {
+      OPENOBSERVE_SOURCEMAPS_ENABLED: sourceMapsEnabled ? "true" : "false"
+    },
     logFile: options.logFile,
     secrets: options.secrets,
     timeoutMs: 30 * 60 * 1000
@@ -52,7 +71,10 @@ export async function buildShellArtifacts(options: {
   await mkdir(terraformOpenNext, { recursive: true });
   await runCommand("npx", ["wrangler", "deploy", "--dry-run", "--outdir", "terraform/.open-next", "--config", "wrangler.jsonc", "--env", "production"], {
     cwd: options.sourceDir,
-    env: { WRANGLER_LOG: "error" },
+    env: {
+      OPENOBSERVE_SOURCEMAPS_ENABLED: sourceMapsEnabled ? "true" : "false",
+      WRANGLER_LOG: "error"
+    },
     logFile: options.logFile,
     secrets: options.secrets,
     timeoutMs: 10 * 60 * 1000
@@ -62,6 +84,30 @@ export async function buildShellArtifacts(options: {
   const assetsTarget = join(terraformOpenNext, "assets");
   await rm(assetsTarget, { recursive: true, force: true });
   await cp(assetsSource, assetsTarget, { recursive: true });
+
+  if (!sourceMapsEnabled) {
+    return {
+      openObserveSourceMapsRequested: options.enableOpenObserveSourceMaps,
+      openObserveSourceMapsStaged: false
+    };
+  }
+
+  await runCommand("npm", ["run", "openobserve:sourcemaps:stage"], {
+    cwd: options.sourceDir,
+    env: {
+      OPENOBSERVE_SOURCEMAP_REMOVE_PUBLIC: "true"
+    },
+    logFile: options.logFile,
+    secrets: options.secrets,
+    timeoutMs: 5 * 60 * 1000
+  });
+
+  const archivePath = join(terraformOpenNext, "sourcemaps", "sourcemaps.zip");
+  await stat(archivePath);
+  return {
+    openObserveSourceMapsRequested: true,
+    openObserveSourceMapsStaged: true
+  };
 }
 
 async function installOpenObserveRumBundle(options: {
@@ -111,5 +157,15 @@ async function findRumTarball(cacheDir: string, version: string): Promise<string
     return exact ? join(cacheDir, exact) : "";
   } catch {
     return "";
+  }
+}
+
+async function packageScriptExists(sourceDir: string, scriptName: string): Promise<boolean> {
+  try {
+    const raw = await readFile(join(sourceDir, "package.json"), "utf8");
+    const parsed = JSON.parse(raw) as { scripts?: Record<string, unknown> };
+    return typeof parsed.scripts?.[scriptName] === "string";
+  } catch {
+    return false;
   }
 }

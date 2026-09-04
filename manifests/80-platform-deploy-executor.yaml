@@ -193,6 +193,22 @@ spec:
               value: "/workspace/platform-deploy-executor"
             - name: OPENOBSERVE_BROWSER_RUM_CACHE_DIR
               value: "/workspace/cache/openobserve-browser-rum"
+            - name: DEFAULT_OPENOBSERVE_SOURCEMAPS_ENABLED
+              value: "true"
+            - name: DEFAULT_OPENOBSERVE_SOURCEMAP_UPLOAD_URL
+              value: "http://openobserve-router.openobserve.svc.cluster.local:5080"
+            - name: DEFAULT_OPENOBSERVE_SOURCEMAP_ORG
+              value: "default"
+            - name: DEFAULT_OPENOBSERVE_SOURCEMAP_UPLOAD_AUTH_SCHEME
+              value: "Basic"
+            - name: DEFAULT_OPENOBSERVE_SOURCEMAP_UPLOAD_AUTH_TOKEN_LOOKUP_FROM_VAULT
+              value: "true"
+            - name: DEFAULT_OPENOBSERVE_SOURCEMAP_UPLOAD_AUTH_TOKEN_VAULT_MOUNT
+              value: "secret"
+            - name: DEFAULT_OPENOBSERVE_SOURCEMAP_UPLOAD_AUTH_TOKEN_VAULT_NAME
+              value: "openobserve-sourcemap-upload-auth-token"
+            - name: DEFAULT_OPENOBSERVE_SOURCEMAP_UPLOAD_AUTH_TOKEN_VAULT_FIELD
+              value: "value"
             - name: TFE_TOKEN_VAULT_PATH
               value: "secret/data/platform-deploy-service"
             - name: TFE_TOKEN_VAULT_KEYS
