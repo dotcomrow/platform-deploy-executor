@@ -46,6 +46,22 @@ type ListedSourceMapRecord = {
   version: string | null;
 };
 
+export type OpenObserveSourceMapIdentity = {
+  environment: string;
+  organization: string;
+  service: string;
+  version: string;
+};
+
+export type OpenObserveSourceMapUploadSettings = {
+  authScheme: string;
+  authTokenLookupFromVault: boolean;
+  authTokenVaultField: string;
+  authTokenVaultMount: string;
+  authTokenVaultName: string;
+  uploadBaseUrl: string;
+};
+
 export async function uploadOpenObserveSourceMaps(options: {
   archivePath: string;
   logFile: string;
@@ -53,6 +69,32 @@ export async function uploadOpenObserveSourceMaps(options: {
   request: DeployRequest;
   target: DeploymentTarget;
   values: ResolvedDeployValues;
+}): Promise<OpenObserveSourceMapUploadResult> {
+  return uploadOpenObserveSourceMapArchive({
+    archivePath: options.archivePath,
+    identity: {
+      environment: options.target === "production" ? "production" : "preview",
+      organization: options.values.openObserveOrganizationIdentifier || config.defaultOpenObserveSourceMapOrg,
+      service: options.values.projectName,
+      version: options.metadata.version
+    },
+    logFile: options.logFile,
+    settings: {
+      authScheme: options.values.openObserveSourceMapUploadAuthScheme,
+      authTokenLookupFromVault: options.values.openObserveSourceMapUploadAuthTokenLookupFromVault,
+      authTokenVaultField: options.values.openObserveSourceMapUploadAuthTokenVaultField,
+      authTokenVaultMount: options.values.openObserveSourceMapUploadAuthTokenVaultMount,
+      authTokenVaultName: options.values.openObserveSourceMapUploadAuthTokenVaultName,
+      uploadBaseUrl: options.values.openObserveSourceMapUploadUrl
+    }
+  });
+}
+
+export async function uploadOpenObserveSourceMapArchive(options: {
+  archivePath: string;
+  identity: OpenObserveSourceMapIdentity;
+  logFile: string;
+  settings: OpenObserveSourceMapUploadSettings;
 }): Promise<OpenObserveSourceMapUploadResult> {
   const archiveStats = await stat(options.archivePath);
   if (!archiveStats.isFile()) {
@@ -62,29 +104,29 @@ export async function uploadOpenObserveSourceMaps(options: {
     throw new Error(`OpenObserve source-map archive is empty: ${options.archivePath}`);
   }
 
-  const uploadBaseUrl = trimTrailingSlash(options.values.openObserveSourceMapUploadUrl);
+  const uploadBaseUrl = trimTrailingSlash(options.settings.uploadBaseUrl);
   if (!uploadBaseUrl) {
     throw new Error("OpenObserve source-map upload URL is empty.");
   }
-  if (!options.values.openObserveSourceMapUploadAuthTokenLookupFromVault) {
+  if (!options.settings.authTokenLookupFromVault) {
     throw new Error("Executor OpenObserve source-map upload requires Vault-backed auth token lookup.");
   }
 
-  const organization = options.values.openObserveOrganizationIdentifier || config.defaultOpenObserveSourceMapOrg;
-  const service = options.values.projectName;
-  const environment = options.target === "production" ? "production" : "preview";
-  const version = options.metadata.version;
+  const organization = requireSourceMapField(options.identity.organization, "organization");
+  const service = requireSourceMapField(options.identity.service, "service");
+  const environment = requireSourceMapField(options.identity.environment, "env");
+  const version = requireSourceMapField(options.identity.version, "version");
   const authToken = await vaultValue(
     vaultKv2DataPath(
-      options.values.openObserveSourceMapUploadAuthTokenVaultMount,
-      options.values.openObserveSourceMapUploadAuthTokenVaultName
+      options.settings.authTokenVaultMount,
+      options.settings.authTokenVaultName
     ),
-    options.values.openObserveSourceMapUploadAuthTokenVaultField
+    options.settings.authTokenVaultField
   );
 
   const sourceMapsUrl = `${uploadBaseUrl}/api/${encodeURIComponent(organization)}/sourcemaps`;
   const archive = await readFile(options.archivePath);
-  const authorization = authorizationHeader(authToken, options.values.openObserveSourceMapUploadAuthScheme);
+  const authorization = authorizationHeader(authToken, options.settings.authScheme);
   const multipart = multipartBody(
     {
       service,
@@ -148,6 +190,14 @@ export async function uploadOpenObserveSourceMaps(options: {
     verification_status: verification.statusCode,
     version
   };
+}
+
+function requireSourceMapField(value: string, name: string): string {
+  const normalized = value.trim();
+  if (!normalized) {
+    throw new Error(`OpenObserve source-map ${name} is empty.`);
+  }
+  return normalized;
 }
 
 async function cleanupOldOpenObserveSourceMaps(options: {

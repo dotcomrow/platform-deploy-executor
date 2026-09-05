@@ -8,6 +8,10 @@ import { enforceInternalAuth } from "./auth/internal-auth.js";
 import { resolveInternalToken } from "./lib/vault.js";
 import { truncate } from "./lib/json.js";
 import { openApiSpec } from "./openapi.js";
+import {
+  handleOpenObserveSourceMapUpload,
+  openObserveSourceMapUploadBody,
+} from "./routes/openobserve-sourcemaps.js";
 import { executeStep } from "./steps/execute-step.js";
 import { DeploymentStepName } from "./steps/types.js";
 import { parseStepName } from "./steps/validation.js";
@@ -15,7 +19,6 @@ import { parseStepName } from "./steps/validation.js";
 const app = express();
 app.set("trust proxy", config.trustProxyHops);
 app.use(helmet({ contentSecurityPolicy: false }));
-app.use(express.json({ limit: "1mb" }));
 app.use(morgan("combined"));
 app.use(rateLimit({ windowMs: config.rateWindowMs, limit: config.rateMax, standardHeaders: "draft-7", legacyHeaders: false }));
 
@@ -47,6 +50,20 @@ app.get("/readyz", async (_req, res) => {
 app.get("/openapi.json", (_req, res) => {
   res.status(200).json(openApiSpec);
 });
+
+app.post(
+  "/internal/openobserve/sourcemaps",
+  openObserveSourceMapUploadBody,
+  async (req, res, next) => {
+    try {
+      await handleOpenObserveSourceMapUpload(req, res);
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+app.use(express.json({ limit: "1mb" }));
 
 async function handleStep(req: Request, res: Response, stepName: DeploymentStepName): Promise<void> {
   await enforceInternalAuth(req);

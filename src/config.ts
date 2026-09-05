@@ -61,6 +61,7 @@ const envSchema = z.object({
   DEFAULT_OPENOBSERVE_SOURCEMAP_UPLOAD_AUTH_TOKEN_VAULT_FIELD: z.string().default("value"),
   DEFAULT_OPENOBSERVE_SOURCEMAP_CLEANUP_ENABLED: z.string().default("true"),
   DEFAULT_OPENOBSERVE_SOURCEMAP_RETENTION_DAYS: z.string().default("14"),
+  OPENOBSERVE_SOURCEMAP_DIRECT_UPLOAD_MAX_BYTES: z.string().default("52428800"),
   VAULT_ADDR: z.string().default("http://vault.vault.svc.cluster.local:8200"),
   VAULT_TOKEN_FILE: z.string().default("/vault-secrets/vault-token"),
   TOKEN_CACHE_SECONDS: z.string().default("300"),
@@ -132,6 +133,10 @@ export const config = {
   defaultOpenObserveSourceMapUploadAuthTokenVaultField: parsed.DEFAULT_OPENOBSERVE_SOURCEMAP_UPLOAD_AUTH_TOKEN_VAULT_FIELD,
   defaultOpenObserveSourceMapCleanupEnabled: asBoolean(parsed.DEFAULT_OPENOBSERVE_SOURCEMAP_CLEANUP_ENABLED, true),
   defaultOpenObserveSourceMapRetentionDays: Math.max(1, Number(parsed.DEFAULT_OPENOBSERVE_SOURCEMAP_RETENTION_DAYS) || 14),
+  openObserveSourceMapDirectUploadMaxBytes: Math.max(
+    1024,
+    Number(parsed.OPENOBSERVE_SOURCEMAP_DIRECT_UPLOAD_MAX_BYTES) || 52_428_800
+  ),
   vaultAddr: parsed.VAULT_ADDR.replace(/\/+$/, ""),
   vaultTokenFile: parsed.VAULT_TOKEN_FILE,
   tokenCacheSeconds: Math.max(5, Number(parsed.TOKEN_CACHE_SECONDS) || 300),

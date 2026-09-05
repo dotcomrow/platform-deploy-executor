@@ -87,6 +87,16 @@ export const openApiSpec = {
           result_json: { type: "object", additionalProperties: true }
         }
       },
+      SourceMapUploadResponse: {
+        type: "object",
+        required: ["ok", "service", "upload"],
+        additionalProperties: true,
+        properties: {
+          ok: { type: "boolean" },
+          service: { type: "string" },
+          upload: { type: "object", additionalProperties: true }
+        }
+      },
       ErrorResponse: {
         type: "object",
         properties: {
@@ -104,6 +114,35 @@ export const openApiSpec = {
   paths: {
     "/healthz": { get: { operationId: "healthz", responses: { "200": { description: "Service health" } } } },
     "/readyz": { get: { operationId: "readyz", responses: { "200": { description: "Service readiness" }, "503": { description: "Not ready" } } } },
+    "/internal/openobserve/sourcemaps": {
+      post: {
+        operationId: "uploadOpenObserveSourceMaps",
+        security: [{ internalBearer: [] }],
+        parameters: [
+          { name: "organization", in: "query", required: false, schema: { type: "string", default: "default" } },
+          { name: "service", in: "query", required: true, schema: { type: "string" } },
+          { name: "env", in: "query", required: true, schema: { type: "string", enum: ["preview", "production"] } },
+          { name: "version", in: "query", required: true, schema: { type: "string" } }
+        ],
+        requestBody: {
+          required: true,
+          content: {
+            "application/zip": { schema: { type: "string", format: "binary" } },
+            "application/octet-stream": { schema: { type: "string", format: "binary" } }
+          }
+        },
+        responses: {
+          "200": {
+            description: "OpenObserve source maps uploaded",
+            content: { "application/json": { schema: { $ref: "#/components/schemas/SourceMapUploadResponse" } } }
+          },
+          "400": { description: "Invalid source-map upload request" },
+          "401": { description: "Unauthorized" },
+          "413": { description: "Source-map archive too large" },
+          "503": { description: "Executor dependency unavailable" }
+        }
+      }
+    },
     "/internal/operations/{id}/steps/prod-deploy": { post: { operationId: "prodDeploy", security: [{ internalBearer: [] }], parameters: [{ $ref: "#/components/parameters/OperationIdPath" }], requestBody: { required: true, content: { "application/json": { schema: { $ref: "#/components/schemas/DeployStepRequest" } } } }, responses: { "200": { description: "Production deploy step completed", content: { "application/json": { schema: { $ref: "#/components/schemas/StepResponse" } } } }, "422": { description: "Invalid deployment request" }, "501": { description: "Configured provider is not implemented" } } } },
     "/internal/operations/{id}/steps/preview-deploy": { post: { operationId: "previewDeploy", security: [{ internalBearer: [] }], parameters: [{ $ref: "#/components/parameters/OperationIdPath" }], requestBody: { required: true, content: { "application/json": { schema: { $ref: "#/components/schemas/DeployStepRequest" } } } }, responses: { "200": { description: "Preview deploy step completed", content: { "application/json": { schema: { $ref: "#/components/schemas/StepResponse" } } } }, "409": { description: "Production deploy has not completed successfully for this operation" }, "422": { description: "Invalid deployment request" }, "501": { description: "Configured provider is not implemented" } } } },
     "/internal/operations/{id}/steps/preview-destroy": { post: { operationId: "previewDestroy", security: [{ internalBearer: [] }], parameters: [{ $ref: "#/components/parameters/OperationIdPath" }], requestBody: { required: true, content: { "application/json": { schema: { $ref: "#/components/schemas/DeployStepRequest" } } } }, responses: { "200": { description: "Preview destroy step completed", content: { "application/json": { schema: { $ref: "#/components/schemas/StepResponse" } } } }, "422": { description: "Invalid deployment request" }, "501": { description: "Configured provider is not implemented" } } } },
