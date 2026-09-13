@@ -328,4 +328,5 @@ spec:
     - name: http
       port: 8080
       targetPort: 8080
-  type: ClusterIP
+  type: LoadBalancer
+  loadBalancerIP: 10.0.0.115
