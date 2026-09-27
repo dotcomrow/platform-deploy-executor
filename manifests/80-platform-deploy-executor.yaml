@@ -183,6 +183,12 @@ spec:
               value: "terraform_cloud"
             - name: AUTH_REQUIRED
               value: "true"
+            - name: STATUS_CALLBACK_MAX_ATTEMPTS
+              value: "10"
+            - name: STATUS_CALLBACK_INITIAL_BACKOFF_MS
+              value: "2000"
+            - name: STATUS_CALLBACK_MAX_BACKOFF_MS
+              value: "60000"
             - name: INTERNAL_TOKEN_VAULT_PATH
               value: "secret/data/platform-deploy-service"
             - name: INTERNAL_TOKEN_VAULT_KEY
