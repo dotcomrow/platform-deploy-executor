@@ -362,6 +362,9 @@ function shouldRetryTfeResponse(method: string, statusCode: number, text: string
   if (statusCode === 408 || statusCode === 429 || statusCode >= 500) {
     return true;
   }
+  if (statusCode === 409 && /database lock timeout occurred during processing/i.test(text)) {
+    return true;
+  }
   return method === "GET" && statusCode === 404 && text.trim() === "404 page not found";
 }
 
