@@ -4,7 +4,26 @@ import { parseDeployRequest, stepDefinitions } from "./validation.js";
 import { emitOperationStep, StepEvent } from "./status-events.js";
 import { assertOperationActive, assertProductionDeploySucceeded } from "./operation-status.js";
 
-export async function executeStep(operationId: string, stepName: DeploymentStepName, body: unknown): Promise<StepExecutionResult> {
+const activeExecutions = new Map<string, Promise<StepExecutionResult>>();
+
+export function executeStep(operationId: string, stepName: DeploymentStepName, body: unknown): Promise<StepExecutionResult> {
+  const executionKey = `${operationId}:${stepName}`;
+  const activeExecution = activeExecutions.get(executionKey);
+  if (activeExecution) {
+    return activeExecution;
+  }
+
+  const execution = executeStepOnce(operationId, stepName, body);
+  activeExecutions.set(executionKey, execution);
+  void execution.finally(() => {
+    if (activeExecutions.get(executionKey) === execution) {
+      activeExecutions.delete(executionKey);
+    }
+  }).catch(() => undefined);
+  return execution;
+}
+
+async function executeStepOnce(operationId: string, stepName: DeploymentStepName, body: unknown): Promise<StepExecutionResult> {
   const request = parseDeployRequest(operationId, stepName, body);
   await assertOperationActive(request);
   const provider = providerForConfiguredMode();
