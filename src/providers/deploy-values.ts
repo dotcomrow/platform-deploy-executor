@@ -105,6 +105,7 @@ export function workspaceVars(options: {
     tv("directus_client_lookup_from_vault", "true", "resolve Directus client credentials from Vault", true),
     tv("cache_refresh_auth_audience_lookup_from_vault", "true", "resolve refresh auth audience from Vault", true),
     tv("keycloak_realm", options.values.realm, "Keycloak realm selector"),
+    tv("directus_content_app_id", options.request.content_app_id, "Logical Directus CMS application id"),
     tv("directus_content_site_key", options.request.site_key, "Directus content site key"),
     tv("directus_auth_token_url", options.values.directusAuthTokenUrl, "Directus token endpoint"),
     tv("cache_refresh_auth_issuer", options.values.cacheRefreshAuthIssuer, "refresh token issuer"),

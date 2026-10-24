@@ -11,6 +11,7 @@ export const deployRequestSchema = z.object({
   sequence: sequenceSchema,
   deployment_strategy: deploymentStrategySchema,
   app_id: z.string().min(1),
+  content_app_id: z.string().uuid(),
   organization_id: z.string().optional().default(""),
   app_key: z.string().min(1),
   site_key: z.string().min(1),

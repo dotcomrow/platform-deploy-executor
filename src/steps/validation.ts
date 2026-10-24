@@ -47,6 +47,7 @@ export function parseDeployRequest(operationId: string, step: DeploymentStepName
 
   if (payload.deployment_strategy === "terraform_cloud") {
     const missing = [
+      ["content_app_id", payload.content_app_id],
       ["terraform_project", payload.terraform_project],
       ["terraform_cloud_organization", payload.terraform_cloud_organization],
       ["organization_id", payload.organization_id],
