@@ -240,23 +240,55 @@ export class TfeClient {
       timeoutMs: 5 * 60 * 1000
     });
     const body = await readFile(tarball);
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), config.requestTimeoutMs * 4);
-    try {
-      const response = await undiciRequest(uploadUrl, {
-        method: "PUT",
-        body,
-        headers: { "content-type": "application/octet-stream" },
-        signal: controller.signal
-      });
-      const text = await response.body.text();
-      if (response.statusCode < 200 || response.statusCode > 299) {
-        throw new Error(`Failed to upload Terraform Cloud configuration: HTTP ${response.statusCode} ${truncate(text, 700)}`);
+    const maxUploadAttempts = 3;
+    let lastUploadError: unknown;
+    for (let attempt = 1; attempt <= maxUploadAttempts; attempt += 1) {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), config.requestTimeoutMs * 4);
+      let responseFailure = false;
+      try {
+        const response = await undiciRequest(uploadUrl, {
+          method: "PUT",
+          body,
+          headers: { "content-type": "application/octet-stream" },
+          signal: controller.signal
+        });
+        const text = await response.body.text();
+        if (response.statusCode >= 200 && response.statusCode <= 299) {
+          return configVersionId;
+        }
+
+        const uploadError = new Error(
+          `Failed to upload Terraform Cloud configuration: HTTP ${response.statusCode} ${truncate(text, 700)}`
+        );
+        lastUploadError = uploadError;
+        if (attempt >= maxUploadAttempts || !shouldRetryConfigurationUploadStatus(response.statusCode)) {
+          responseFailure = true;
+          throw uploadError;
+        }
+        await appendFile(
+          this.logFile,
+          `[tfe] configuration upload returned HTTP ${response.statusCode}; retrying upload (attempt ${attempt + 1}/${maxUploadAttempts})\n`,
+          "utf8"
+        );
+      } catch (error) {
+        lastUploadError = error;
+        if (responseFailure || attempt >= maxUploadAttempts) {
+          throw error;
+        }
+        await appendFile(
+          this.logFile,
+          `[tfe] configuration upload failed: ${truncate(errorMessage(error), 500)}; retrying upload (attempt ${attempt + 1}/${maxUploadAttempts})\n`,
+          "utf8"
+        );
+      } finally {
+        clearTimeout(timer);
       }
-    } finally {
-      clearTimeout(timer);
+      await delay(attempt * 2000);
     }
-    return configVersionId;
+    throw new Error(
+      `Terraform Cloud configuration upload failed after ${maxUploadAttempts} attempt(s): ${truncate(errorMessage(lastUploadError), 700)}`
+    );
   }
 
   async createRun(workspaceId: string, configVersionId: string, message: string, destroy: boolean): Promise<string> {
@@ -352,6 +384,10 @@ export class TfeClient {
 
     throw new Error(`Terraform Cloud ${method} ${path} request failed after ${maxAttempts} attempt(s): ${truncate(errorMessage(lastError), 700)}`);
   }
+}
+
+function shouldRetryConfigurationUploadStatus(statusCode: number): boolean {
+  return statusCode === 408 || statusCode === 429 || statusCode >= 500;
 }
 
 function shouldRetryTfeResponse(method: string, statusCode: number, text: string, retryUnsafePost = false): boolean {
