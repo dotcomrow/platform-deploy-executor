@@ -53,7 +53,7 @@ export const deployRequestSchema = z.object({
   openobserve_sourcemap_upload_auth_token_vault_name: z.string().optional().default(""),
   openobserve_sourcemap_upload_auth_token_vault_field: z.string().optional().default(""),
   app_log_openobserve_organization_identifier: z.string().optional().default(""),
-  github_repository_variables: z.record(z.unknown()).optional().default({}),
+  github_repository_variables: z.record(z.string(), z.unknown()).optional().default({}),
   prepared_at: z.string().optional().default(""),
   prepared_by: z.string().optional().default(""),
   source: z.string().optional().default(""),
