@@ -18,6 +18,37 @@ export class TerraformCloudRunTerminalError extends Error {
   }
 }
 
+export class TerraformCloudRunTimeoutError extends Error {
+  readonly runId: string;
+
+  constructor(runId: string, timeoutSeconds: number) {
+    super(`Timed out after ${timeoutSeconds} seconds waiting for Terraform Cloud run ${runId}.`);
+    this.name = "TerraformCloudRunTimeoutError";
+    this.runId = runId;
+  }
+}
+
+export class TerraformCloudRunStalledError extends Error {
+  readonly runId: string;
+  readonly status: string;
+
+  constructor(runId: string, status: string, stallTimeoutSeconds: number) {
+    super(`Terraform Cloud run ${runId} remained in status '${status}' for ${stallTimeoutSeconds} seconds.`);
+    this.name = "TerraformCloudRunStalledError";
+    this.runId = runId;
+    this.status = status;
+  }
+}
+
+const STALL_SENSITIVE_RUN_STATUSES = new Set([
+  "pending",
+  "plan_queued",
+  "cost_estimating",
+  "policy_checking",
+  "policy_override",
+  "apply_queued"
+]);
+
 type TfeClientOptions = {
   apiBase: string;
   token: string;
@@ -316,11 +347,17 @@ export class TfeClient {
     return `https://app.terraform.io/app/${encodeURIComponent(this.organization)}/workspaces/${encodeURIComponent(workspaceName)}/runs/${encodeURIComponent(runId)}`;
   }
 
-  async pollRun(runId: string, timeoutSeconds: number, pollSeconds: number): Promise<string> {
+  async pollRun(runId: string, timeoutSeconds: number, pollSeconds: number, stallTimeoutSeconds: number): Promise<string> {
     const deadline = Date.now() + timeoutSeconds * 1000;
+    let lastStatus = "";
+    let statusStartedAt = Date.now();
     while (Date.now() < deadline) {
       const response = await this.request<JsonRecord>("GET", `/runs/${encodeURIComponent(runId)}`);
       const status = asString(asRecord(asRecord(response.data)?.attributes)?.status);
+      if (status !== lastStatus) {
+        lastStatus = status;
+        statusStartedAt = Date.now();
+      }
       await appendFile(this.logFile, `[tfe] run ${runId} status=${status || "unknown"}\n`, "utf8");
       if (this.onRunStatus) {
         await this.onRunStatus(runId, status || "unknown");
@@ -331,9 +368,42 @@ export class TfeClient {
       if (["errored", "canceled", "discarded", "force_canceled"].includes(status)) {
         throw new TerraformCloudRunTerminalError(runId, status);
       }
+      if (
+        STALL_SENSITIVE_RUN_STATUSES.has(status)
+        && Date.now() - statusStartedAt >= stallTimeoutSeconds * 1000
+      ) {
+        throw new TerraformCloudRunStalledError(runId, status, stallTimeoutSeconds);
+      }
       await new Promise((resolve) => setTimeout(resolve, pollSeconds * 1000));
     }
-    throw new Error(`Timed out waiting for Terraform Cloud run ${runId}.`);
+    throw new TerraformCloudRunTimeoutError(runId, timeoutSeconds);
+  }
+
+  async cancelRunAndWait(runId: string, timeoutSeconds = 300): Promise<string> {
+    const cancel = await this.raw<unknown>(
+      "POST",
+      `/runs/${encodeURIComponent(runId)}/actions/cancel`,
+      { comment: "Canceled automatically after the platform deploy executor detected a stalled or timed-out run." },
+      { retryUnsafePost: true, maxAttempts: 3 }
+    );
+    if (cancel.statusCode !== 200 && cancel.statusCode !== 202) {
+      throw new Error(`Terraform Cloud refused to cancel run ${runId}: HTTP ${cancel.statusCode} ${truncate(cancel.text, 700)}`);
+    }
+
+    const deadline = Date.now() + timeoutSeconds * 1000;
+    while (Date.now() < deadline) {
+      const response = await this.request<JsonRecord>("GET", `/runs/${encodeURIComponent(runId)}`);
+      const status = asString(asRecord(asRecord(response.data)?.attributes)?.status);
+      if (["canceled", "discarded", "force_canceled", "errored"].includes(status)) {
+        await appendFile(this.logFile, `[tfe] canceled run ${runId}; terminal status=${status}\n`, "utf8");
+        return status;
+      }
+      if (["applied", "planned_and_finished"].includes(status)) {
+        throw new Error(`Terraform Cloud run ${runId} completed with status '${status}' while cancellation was pending; refusing to create a duplicate run.`);
+      }
+      await delay(5000);
+    }
+    throw new Error(`Terraform Cloud run ${runId} did not reach a terminal state within ${timeoutSeconds} seconds after cancellation.`);
   }
 
   private async request<T>(method: "GET" | "POST" | "PATCH", path: string, body?: unknown): Promise<T> {

@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "build": "tsc --project tsconfig.json",
+    "test": "node --import tsx --test src/providers/terraform-run-retry.test.ts",
     "start": "node dist/server.js",
     "dev": "tsx watch src/server.ts"
   },

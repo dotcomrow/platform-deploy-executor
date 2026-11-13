@@ -10,7 +10,12 @@ import { uploadOpenObserveSourceMaps } from "./openobserve-sourcemaps.js";
 import { sourceRefFor, terraformWorkspaceFor, buildResult, DeployStepProvider, ProviderExecutionContext } from "./provider.js";
 import { resolveDeployValues, workspaceVars } from "./deploy-values.js";
 import { resolveTerraformCloudSecrets } from "./secrets.js";
-import { TerraformCloudRunTerminalError, TfeClient } from "./tfe-client.js";
+import {
+  TerraformCloudRunStalledError,
+  TerraformCloudRunTerminalError,
+  TerraformCloudRunTimeoutError,
+  TfeClient,
+} from "./tfe-client.js";
 
 type TerraformRunResult = {
   configVersionId: string;
@@ -237,7 +242,13 @@ async function executeTerraformRunWithRetries(options: {
   tfe: TfeClient;
   context: ProviderExecutionContext;
   stage: StageFn;
-  request: { operation_id: string; app_key: string; terraform_run_timeout_seconds: unknown; terraform_run_poll_seconds: unknown };
+  request: {
+    operation_id: string;
+    app_key: string;
+    terraform_run_timeout_seconds: unknown;
+    terraform_run_stall_timeout_seconds: unknown;
+    terraform_run_poll_seconds: unknown;
+  };
   stepAction: string;
   stepTarget: string;
   workspaceId: string;
@@ -250,6 +261,7 @@ async function executeTerraformRunWithRetries(options: {
   setActiveRunAttempt: (attempt: number) => void;
 }): Promise<TerraformRunResult> {
   const timeoutSeconds = parsePositiveInt(options.request.terraform_run_timeout_seconds, 7200);
+  const stallTimeoutSeconds = parsePositiveInt(options.request.terraform_run_stall_timeout_seconds, 900);
   const pollSeconds = parsePositiveInt(options.request.terraform_run_poll_seconds, 20);
   let lastError: unknown;
 
@@ -284,16 +296,32 @@ async function executeTerraformRunWithRetries(options: {
     });
 
     try {
-      const runStatus = await options.tfe.pollRun(runId, timeoutSeconds, pollSeconds);
+      const runStatus = await options.tfe.pollRun(runId, timeoutSeconds, pollSeconds, stallTimeoutSeconds);
       return { configVersionId, runId, runStatus, runUrl, attempts: attempt };
     } catch (error) {
       lastError = error;
+      if (error instanceof TerraformCloudRunStalledError || error instanceof TerraformCloudRunTimeoutError) {
+        await options.context.emitStep({
+          status: "running",
+          message: `${error.message} Canceling it before ${attempt < options.maxAttempts ? "retrying" : "failing the step"}.`,
+          result_json: {
+            terraform_run_id: runId,
+            terraform_run_url: runUrl,
+            terraform_run_status: error instanceof TerraformCloudRunStalledError ? error.status : "timed_out",
+            terraform_run_attempt: attempt,
+            terraform_run_max_attempts: options.maxAttempts,
+            terraform_retry_next_attempt: attempt + 1,
+            terraform_workspace: options.workspaceName
+          }
+        });
+        await options.tfe.cancelRunAndWait(runId);
+      }
       if (!shouldRetryTerraformRun(error, attempt, options.maxAttempts)) {
         throw error;
       }
       await appendFile(
         options.logFile,
-        `[executor] ${new Date().toISOString()} Terraform Cloud run ${runId} ended errored; retrying in ${options.retryDelaySeconds}s (attempt ${attempt + 1}/${options.maxAttempts}).\n`,
+        `[executor] ${new Date().toISOString()} Terraform Cloud run ${runId} did not complete successfully; retrying in ${options.retryDelaySeconds}s (attempt ${attempt + 1}/${options.maxAttempts}).\n`,
         "utf8"
       );
       await options.context.emitStep({
@@ -317,10 +345,11 @@ async function executeTerraformRunWithRetries(options: {
   throw lastError instanceof Error ? lastError : new Error("Terraform Cloud run failed after retry attempts.");
 }
 
-function shouldRetryTerraformRun(error: unknown, attempt: number, maxAttempts: number): boolean {
-  return error instanceof TerraformCloudRunTerminalError
-    && error.status === "errored"
-    && attempt < maxAttempts;
+export function shouldRetryTerraformRun(error: unknown, attempt: number, maxAttempts: number): boolean {
+  if (attempt >= maxAttempts) return false;
+  return (error instanceof TerraformCloudRunTerminalError && error.status === "errored")
+    || error instanceof TerraformCloudRunStalledError
+    || error instanceof TerraformCloudRunTimeoutError;
 }
 
 async function appendStage(

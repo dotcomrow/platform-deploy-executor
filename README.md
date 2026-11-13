@@ -34,6 +34,13 @@ implemented.
 operation already has a `prod-deploy` step recorded as `succeeded`, because the
 production Terraform workspace owns shared resources such as D1 and R2.
 
+Terraform runs have two separate safety boundaries. The total run timeout
+limits genuinely long plans and applies, while the shorter stall timeout
+detects control-plane phases such as `cost_estimating` that stop advancing.
+A stalled or timed-out run is canceled and allowed to reach a terminal state
+before the executor creates the next configured retry, preventing a blocked
+workspace from accumulating duplicate runs.
+
 Health and contract endpoints:
 
 - `GET /healthz`
