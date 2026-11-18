@@ -142,7 +142,7 @@ spec:
   template:
     metadata:
       annotations:
-        platform.suncoast.systems/restart-revision: "2026-08-05-notification-scope-vars"
+        platform.suncoast.systems/restart-revision: "2026-11-18-tfe-var-retry"
         reloader.stakater.com/auto: "true"
       labels:
         app: platform-deploy-executor
@@ -167,7 +167,7 @@ spec:
             - name: vault-secrets
               mountPath: /vault-secrets
         - name: platform-deploy-executor
-          image: "ghcr.io/dotcomrow/platform-deploy-executor:latest"
+          image: "ghcr.io/dotcomrow/platform-deploy-executor:ts-20261118-170503"
           imagePullPolicy: Always
           resources:
             requests:
