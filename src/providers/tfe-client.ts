@@ -243,9 +243,78 @@ export class TfeClient {
       if (current?.id) {
         await this.request<JsonRecord>("PATCH", `/vars/${encodeURIComponent(asString(current.id))}`, body);
       } else {
-        await this.request<JsonRecord>("POST", "/vars", body);
+        await this.createTerraformVarWithReconciliation(workspaceId, variable.key, body);
       }
     }
+  }
+
+  private async createTerraformVarWithReconciliation(
+    workspaceId: string,
+    variableKey: string,
+    body: JsonRecord
+  ): Promise<void> {
+    const maxAttempts = 3;
+    let lastError: unknown;
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+      let retryable = false;
+      let result: Awaited<ReturnType<TfeClient["raw"]>> | null = null;
+      try {
+        result = await this.raw<JsonRecord>("POST", "/vars", body);
+      } catch (error) {
+        lastError = error;
+        retryable = true;
+      }
+
+      if (result) {
+        if (result.statusCode < 400) {
+          return;
+        }
+
+        lastError = new Error(`HTTP ${result.statusCode} ${truncate(result.text, 700)}`);
+        retryable = shouldReconcileTerraformVarCreateStatus(result.statusCode, result.text);
+        if (!retryable) {
+          throw lastError;
+        }
+      }
+
+      if (!retryable || attempt >= maxAttempts) {
+        break;
+      }
+
+      await appendFile(
+        this.logFile,
+        `[tfe] POST /vars for ${variableKey} failed: ${truncate(errorMessage(lastError), 500)}; reconciling before attempt ${attempt + 1}/${maxAttempts}\n`,
+        "utf8"
+      );
+      await delay(attempt * 2000);
+
+      const existingResponse = await this.request<JsonRecord>(
+        "GET",
+        `/workspaces/${encodeURIComponent(workspaceId)}/vars`
+      );
+      const existing = Array.isArray(existingResponse.data)
+        ? existingResponse.data.map(asRecord).filter(Boolean) as JsonRecord[]
+        : [];
+      const current = existing.find((item) => {
+        const attributes = asRecord(item.attributes) ?? {};
+        return asString(attributes.key) === variableKey && asString(attributes.category) === "terraform";
+      });
+      const currentId = asString(current?.id);
+      if (currentId) {
+        await appendFile(
+          this.logFile,
+          `[tfe] POST /vars for ${variableKey} was applied before the response failed; reconciling with PATCH\n`,
+          "utf8"
+        );
+        await this.request<JsonRecord>("PATCH", `/vars/${encodeURIComponent(currentId)}`, body);
+        return;
+      }
+    }
+
+    throw new Error(
+      `Terraform Cloud POST /vars for ${variableKey} failed after ${maxAttempts} attempt(s): ${truncate(errorMessage(lastError), 700)}`
+    );
   }
 
   async uploadConfiguration(workspaceId: string, terraformDir: string, operationDir: string): Promise<string> {
@@ -472,6 +541,12 @@ function shouldRetryTfeResponse(method: string, statusCode: number, text: string
     return true;
   }
   return method === "GET" && statusCode === 404 && text.trim() === "404 page not found";
+}
+
+function shouldReconcileTerraformVarCreateStatus(statusCode: number, text: string): boolean {
+  return statusCode === 409
+    || statusCode === 422
+    || shouldRetryTfeResponse("POST", statusCode, text, true);
 }
 
 function errorMessage(error: unknown): string {
